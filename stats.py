@@ -315,7 +315,12 @@ def stats(jours: int = 30) -> dict:
             "proteines_14j": moyenne(14, "proteines"),
             "depense_7j": moyenne(7, "depense", seulement_complets=False),
             "depense_14j": moyenne(14, "depense", seulement_complets=False),
-            "solde_7j": moyenne(7, "solde"),
+            # solde_7j = les MÊMES jours complets que le déficit mesuré de la
+            # projection (variable `soldes`), pas une fenêtre calendaire : deux
+            # fenêtres différentes donnaient deux « déficit moyen » incohérents
+            # sur la même page (2165 vs 2101, constaté le 2026-09-07).
+            "solde_7j": round(-sum(soldes) / len(soldes)) if soldes else None,
+            "solde_jours": len(soldes),
         },
         "saisie": {
             "jours_complets": len(complets),
