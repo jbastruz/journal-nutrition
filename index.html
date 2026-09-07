@@ -1,0 +1,1708 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0c0f13">
+<title>Journal</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ctext y=%22.9em%22 font-size=%2290%22%3E%F0%9F%8D%8E%3C/text%3E%3C/svg%3E">
+<style>
+  /* ── Jetons ────────────────────────────────────────────────────────────
+     Les bordures sont des BLANCS TRANSLUCIDES et non des gris opaques : posées
+     sur des fonds d'élévations différentes, elles gardent le même rapport de
+     contraste au lieu de trancher sur les cartes claires et de disparaître sur
+     les foncées. C'est ce qui fait qu'un trait a l'air dessiné plutôt que
+     collé. */
+  :root{
+    --bg:#0c0f13; --surface:#14181e; --carte:#171c23; --carte-h:#1d232b;
+    --bord:rgba(255,255,255,.075); --bord-fort:rgba(255,255,255,.14);
+    --txt:#eef2f7; --doux:#93a0b0; --faible:#6a7684;
+    --accent:#58a6ff; --accent-sourd:rgba(88,166,255,.14);
+    --ok:#3fb950; --warn:#d6a238; --danger:#e0685f;
+    --r-s:10px; --r-m:13px; --r-l:17px;
+    --ombre:0 1px 2px rgba(0,0,0,.4), 0 4px 14px rgba(0,0,0,.28);
+    --ombre-haute:0 -1px 0 var(--bord), 0 -12px 34px rgba(0,0,0,.5);
+    --sortie:cubic-bezier(.2,.75,.3,1);
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{margin:0;background:var(--bg);color:var(--txt);
+       font:16px/1.45 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",
+            Roboto,sans-serif;
+       /* `tnum` : les chiffres prennent tous la même largeur. Sans ça, un total
+          qui passe de 1 369 à 1 428 fait sautiller toute la ligne — le genre de
+          tremblement qu'on ne sait pas nommer mais qui fait bon marché. */
+       font-feature-settings:"tnum" 1,"cv05" 1;
+       -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
+       padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+  header{padding:18px 18px 12px;display:flex;align-items:baseline;gap:10px}
+  h1{font-size:19px;margin:0;font-weight:650;letter-spacing:-.015em}
+  .jour{color:var(--faible);font-size:13px}
+  /* La réserve du bas ne sert plus qu'à dégager le bouton flottant : le résumé
+     défile désormais avec le contenu au lieu d'être une barre fixe. */
+  main{padding:0 14px calc(96px + env(safe-area-inset-bottom))}
+
+  /* La barre de recherche est le cœur : grande, toujours atteignable au pouce. */
+  /* Dégradé de sortie sous la barre collante : le contenu se dissout au lieu
+     de passer net sous elle. Un bord franc trahit la superposition. */
+  .rech{position:sticky;top:0;padding:8px 4px 10px;z-index:10;
+        background:linear-gradient(var(--bg) 72%,rgba(12,15,19,0))}
+  input,button,select{font:inherit;color:inherit}
+  button{cursor:pointer;transition:transform .13s var(--sortie),
+         background .13s ease,border-color .13s ease,opacity .13s ease}
+  button:active{transform:scale(.97)}
+  .barre{display:flex;gap:8px}
+  #q{flex:1;min-width:0;padding:15px 16px;border-radius:var(--r-m);
+     border:1px solid var(--bord);background:var(--carte);font-size:17px;outline:none;
+     transition:border-color .15s ease,box-shadow .15s ease}
+  #q::placeholder{color:var(--faible)}
+  #q:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-sourd)}
+  #scan,#maison{width:54px;flex:0 0 54px;border-radius:var(--r-m);
+        border:1px solid var(--bord);background:var(--carte);font-size:22px;
+        line-height:1}
+  #scan:active,#maison:active{border-color:var(--bord-fort);background:var(--carte-h)}
+  #scan[disabled]{opacity:.4}
+  /* Le flux vidéo n'apparaît que si le direct est possible (origine sécurisée). */
+  #flux{width:100%;border-radius:12px;margin-top:8px;display:none;background:#000}
+  .etat{color:var(--faible);font-size:13px;text-align:center;padding:8px 4px;
+        min-height:20px}
+
+  /* Actions rapides sous la recherche. Elles remplacent la liste de favoris en
+     pleine largeur : celle-ci repoussait le journal hors de l'écran dès 8
+     aliments (constaté le 2026-08-30). Des pastilles tiennent 3 par ligne. */
+  .rapide{display:flex;gap:7px;margin:9px 2px 0;overflow-x:auto;
+          scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  .rapide::-webkit-scrollbar{display:none}
+  .rapide button{flex:0 0 auto;padding:9px 13px;border-radius:99px;font-size:13px;
+                 border:1px solid var(--bord);background:var(--surface);
+                 color:var(--doux);white-space:nowrap}
+  .rapide button.fort{border-color:var(--accent);color:var(--accent);
+                      background:var(--accent-sourd)}
+  /* Le rail ne défile plus horizontalement : sur la capture de JB, le bouton
+     protéines sortait de l'écran, texte coupé net. Un bouton qu'on ne lit
+     qu'à moitié n'est pas un bouton. Deux colonnes égales, libellés courts. */
+  .rapide{display:grid;grid-template-columns:1fr 1fr;overflow:visible}
+  .rapide button{width:100%;text-align:center}
+
+  .pastilles{display:flex;flex-wrap:wrap;gap:6px;margin:9px 2px 2px}
+  .pastilles button{padding:8px 12px;border-radius:99px;font-size:13px;
+                    border:1px solid var(--bord);background:var(--carte);
+                    color:var(--txt);max-width:100%;overflow:hidden;
+                    text-overflow:ellipsis;white-space:nowrap}
+  .pastilles button:active{background:var(--carte-h);border-color:var(--bord-fort)}
+  .pastilles button i{font-style:normal;color:var(--faible);font-size:11.5px;
+                      margin-left:5px}
+
+  /* Bandeau d'annulation. Flotte AU-DESSUS de la barre du bas, pas dedans :
+     il doit rester lisible pendant que le total se recalcule derrière. */
+  .annul{position:fixed;left:14px;right:14px;z-index:60;display:flex;
+         justify-content:space-between;align-items:center;gap:12px;
+         background:var(--carte-h);border:1px solid var(--bord-fort);
+         border-radius:var(--r-m);padding:12px 14px;font-size:13.5px;
+         box-shadow:0 10px 30px rgba(0,0,0,.55);
+         animation:monte .2s var(--sortie)}
+  .annul button{background:none;border:none;color:var(--accent);font-weight:600;
+                font-size:14px;padding:6px 2px;min-height:36px}
+
+  .res{list-style:none;margin:6px 0 0;padding:0}
+  .res li{background:var(--carte);border:1px solid var(--bord);border-radius:var(--r-m);
+          padding:13px 14px;margin-bottom:7px;cursor:pointer;
+          transition:transform .13s var(--sortie),background .13s ease}
+  .res li:active{background:var(--carte-h);transform:scale(.985)}
+  .nom{font-size:15px;line-height:1.3;letter-spacing:-.005em}
+  .meta{color:var(--faible);font-size:12.5px;margin-top:3px}
+  /* Avertissement « poids comestible ». Discret mais visible : il ne doit pas
+     bloquer la saisie (100 g convient souvent), juste empêcher l'erreur muette
+     de peser un fruit avec sa peau sur une fiche qui l'exclut. */
+  .avert{display:none;margin-top:8px;padding:9px 11px;border-radius:var(--r-s);
+         background:rgba(214,162,56,.11);border:1px solid rgba(214,162,56,.3);
+         color:#e2b862;font-size:12.5px;line-height:1.4}
+  .avert.on{display:block}
+  .tag{font-size:10.5px;padding:2px 7px;border-radius:99px;
+       border:1px solid var(--bord);background:var(--surface);
+       color:var(--faible);margin-left:6px;vertical-align:1px}
+  .tag.calc{color:var(--warn);border-color:#4a3c1e}
+
+  .sect{color:var(--faible);font-size:11px;text-transform:uppercase;
+        font-weight:600;letter-spacing:.09em;margin:20px 4px 9px;
+        display:flex;justify-content:space-between;align-items:baseline}
+  .sect .kc{text-transform:none;letter-spacing:0;font-size:12.5px}
+
+  /* Navigation entre les jours : discrète, mais toujours au même endroit. */
+  /* La barre de jour sépare le résumé du journal : elle a besoin d'air des DEUX
+     côtés, sinon elle se lit comme le titre de la première carte plutôt que
+     comme une navigation. Signalé par JB le 2026-09-05 : « les espacements avec
+     les flèches sont trop petits dessous ». */
+  .nav{display:flex;align-items:center;justify-content:space-between;
+       gap:10px;padding:0 2px;margin:6px 0 16px}
+  .nav button{background:var(--surface);border:1px solid var(--bord);color:var(--doux);
+              width:40px;height:36px;border-radius:var(--r-s);font-size:17px}
+  .nav button:active:not([disabled]){background:var(--carte-h);color:var(--txt)}
+  .nav button[disabled]{opacity:.22}
+  .nav .jour{color:var(--txt);font-size:14.5px;font-weight:600;text-align:center;
+             flex:1;letter-spacing:-.01em}
+  .nav .jour small{display:block;color:var(--faible);font-weight:400;font-size:11.5px;
+                   letter-spacing:0;margin-top:1px}
+
+  /* Sélecteur de repas : segmenté, un seul appui, pas de menu déroulant. */
+  .repas{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;margin:12px 0 2px}
+  .repas button{padding:10px 0;border-radius:var(--r-s);font-size:12.5px;
+                border:1px solid var(--bord);background:var(--surface);color:var(--doux)}
+  .repas button.on{border-color:var(--accent);color:var(--txt);
+                   background:var(--accent-sourd)}
+
+  /* Le total flotte : visible sans scroller, c'est l'info qu'on vient chercher. */
+  /* ── Carte de résumé ────────────────────────────────────────────────
+     Elle était une barre FIXE en bas. Sur la capture de JB (2026-09-05) elle
+     occupait le tiers bas de l'écran en permanence, la recherche le tiers haut,
+     et il restait un tiers pour le journal — c'est-à-dire pour la seule chose
+     qu'il vient regarder. Elle défile maintenant avec le contenu : on la lit en
+     arrivant, puis elle laisse la place. */
+  .resume{background:var(--carte);border:1px solid var(--bord);
+          border-radius:var(--r-l);padding:15px 16px 14px;margin-bottom:14px;
+          box-shadow:var(--ombre);display:flex;flex-direction:column;gap:11px}
+  .resume.heros{background:
+      radial-gradient(120% 140% at 0% 0%,rgba(88,166,255,.16),transparent 58%),
+      var(--carte);
+      border-color:var(--bord-fort)}
+  .resume .duo{margin-top:0}
+  .resume .solde{border-top:1px solid var(--bord);padding-top:9px}
+  .totalLigne{display:flex;justify-content:space-between;align-items:center}
+
+  /* Bouton d'ajout flottant. Un seul point d'entrée pour « ajouter », au pouce,
+     toujours au même endroit. Tout le reste de l'écran appartient au journal. */
+  #fab{position:fixed;right:18px;z-index:40;
+       bottom:calc(20px + env(safe-area-inset-bottom));
+       width:60px;height:60px;border-radius:50%;border:none;
+       background:linear-gradient(180deg,#6fb4ff,var(--accent));color:#06121c;
+       font-size:33px;font-weight:300;line-height:1;
+       box-shadow:0 6px 20px rgba(88,166,255,.42),0 2px 6px rgba(0,0,0,.5)}
+  #fab:active{transform:scale(.93)}
+
+  /* Feuille d'ajout : plein écran. Une demi-feuille laisserait le journal
+     visible derrière et rejouerait l'encombrement qu'on vient de supprimer. */
+  /* ⚠️ `display:flex` UNIQUEMENT sur [open].
+     Le navigateur cache un <dialog> fermé avec `display:none` — une règle de
+     l'UA, donc battue par n'importe quelle déclaration de `display` de notre
+     part. En l'écrivant sur `dialog.feuille` tout court, la feuille d'ajout
+     restait dans le flux et réapparaissait en bas de page au défilement
+     (signalé par JB le 2026-09-05). Le piège est silencieux : rien n'échoue,
+     la boîte est juste toujours là. */
+  dialog.feuille{width:100vw;max-width:none;height:100dvh;max-height:none;
+                 margin:0;border:none;border-radius:0;padding:0;
+                 background:var(--bg);animation:glisse .24s var(--sortie)}
+  dialog.feuille[open]{display:flex;flex-direction:column}
+  @keyframes glisse{from{transform:translateY(100%)}}
+  .feuilleHaut{display:flex;justify-content:space-between;align-items:center;
+               padding:calc(14px + env(safe-area-inset-top)) 16px 10px;
+               border-bottom:1px solid var(--bord);flex:0 0 auto}
+  .feuilleHaut b{font-size:17px;font-weight:650;letter-spacing:-.015em}
+  .feuilleHaut button{background:none;border:none;color:var(--doux);
+                      font-size:19px;min-width:44px;min-height:44px}
+  dialog.feuille .rech{position:static;background:none;padding:14px 14px 0}
+  dialog.feuille .res{flex:1;overflow-y:auto;padding:0 14px
+                      calc(18px + env(safe-area-inset-bottom));margin-top:8px}
+  .totalLigne{display:flex;justify-content:space-between;align-items:center}
+  .kcal{font-size:25px;font-weight:650;letter-spacing:-.025em}
+  .macros{color:var(--faible);font-size:12.5px;text-align:right;line-height:1.4}
+
+  /* Jauges d'objectif. Elles vivent DANS la barre flottante et pas en haut de
+     page : la question « où j'en suis » se pose au moment où on saisit, pas au
+     moment où on ouvre l'app. Deux lignes de 5 px, c'est le prix qu'on accepte
+     de payer sur la hauteur d'écran. */
+  .jauges{display:grid;gap:7px}
+  .jauge{display:flex;align-items:center;gap:9px;font-size:11.5px;color:var(--faible)}
+  .jauge .lib{flex:0 0 60px}
+  .jauge .piste{flex:1;height:6px;border-radius:99px;overflow:hidden;
+                background:rgba(255,255,255,.07);
+                box-shadow:inset 0 1px 1px rgba(0,0,0,.35)}
+  /* Le dégradé et le reflet n'ont qu'un rôle : donner un volume à un objet de
+     6 px de haut. À plat, une jauge ressemble à un `progress` de 2004. */
+  .jauge .barre{display:block;height:100%;border-radius:99px;
+                background:linear-gradient(180deg,#7cbcff,var(--accent));
+                box-shadow:0 0 10px rgba(88,166,255,.35);
+                transition:width .45s var(--sortie)}
+  .jauge .barre.atteint{background:linear-gradient(180deg,#5fd472,var(--ok));
+                        box-shadow:0 0 10px rgba(63,185,80,.35)}
+  .jauge .barre.trop{background:linear-gradient(180deg,#e8bc5c,var(--warn));
+                     box-shadow:0 0 10px rgba(214,162,56,.35)}
+  .jauge .val{flex:none;color:var(--doux)}
+
+  /* Ligne de solde : apport − dépense Garmin. Séparée des jauges parce qu'elle
+     ne mesure pas une progression vers une cible mais un écart, qui peut être
+     négatif — une barre ne sait pas représenter ça. */
+  .solde{display:flex;justify-content:space-between;font-size:11.5px;
+         color:var(--faible);border-top:1px solid var(--bord);padding-top:8px}
+  .solde b{font-weight:600;font-variant-numeric:tabular-nums}
+  .solde .quoi{font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;
+               color:var(--faible);font-weight:600}
+  .kcal .deficit{color:var(--ok)}
+  .kcal .exces{color:var(--warn)}
+
+  /* ── Onglets ────────────────────────────────────────────────────────
+     En HAUT et pas en bas : la barre du bas porte déjà le total, et le
+     balayage horizontal est attribué aux jours. Deux gestes concurrents sur
+     la même zone, c'est un des deux qui ne marche jamais. */
+  /* Contrôle segmenté : un seul rail, une pastille qui glisse. Deux boutons
+     côte à côte qui s'allument chacun leur tour se lisent comme deux
+     interrupteurs indépendants ; un rail se lit comme un choix unique. */
+  .onglets{display:grid;grid-template-columns:1fr 1fr;gap:3px;margin:0 16px 14px;
+           background:var(--surface);border:1px solid var(--bord);
+           border-radius:12px;padding:3px}
+  .onglets button{padding:9px 0;border-radius:9px;font-size:14px;font-weight:500;
+                  border:none;background:transparent;color:var(--doux);
+                  letter-spacing:-.005em}
+  .onglets button.on{color:var(--txt);background:var(--carte-h);
+                     box-shadow:0 1px 2px rgba(0,0,0,.45)}
+
+  .bloc{background:var(--carte);border:1px solid var(--bord);border-radius:var(--r-l);
+        padding:15px 16px;margin-bottom:11px;box-shadow:var(--ombre)}
+  .bloc h2{font-size:11px;text-transform:uppercase;letter-spacing:.09em;
+           color:var(--faible);font-weight:600;margin-bottom:12px}
+  .bloc .note{color:var(--faible);font-size:11.5px;line-height:1.5;margin-top:11px}
+
+  .ins{border-left:3px solid var(--bord);padding:2px 0 2px 11px;margin-bottom:13px}
+  .ins:last-child{margin-bottom:0}
+  .ins.alerte{border-color:#c9584f}
+  .ins.conseil{border-color:var(--accent)}
+  .ins.constat{border-color:#4a5563}
+  .ins b{display:block;font-size:14.5px;font-weight:600;margin-bottom:4px;
+         letter-spacing:-.01em}
+  .ins p{font-size:13px;line-height:1.5;color:#bcc7d4;margin:0}
+  .ins .act{display:block;margin-top:7px;font-size:12.5px;color:var(--accent);
+            font-weight:500}
+
+  /* Graphes : SVG produit à la main, aucune librairie. Le journal doit
+     fonctionner hors ligne, et une dépendance CDN emporterait l'onglet avec
+     elle le jour où elle tombe. */
+  .graphe{width:100%;height:auto;display:block}
+  .graphe .b{fill:#33455a;transition:none}
+  .graphe .b.atteint{fill:var(--ok)}
+  .graphe .b.sous{fill:var(--accent)}
+  .graphe .b.doute{fill:#2b3038}
+  .graphe .b.encours{fill:#3d4a5c}
+  .graphe .b.vide{fill:none}
+  .graphe .grille{stroke:rgba(255,255,255,.07);stroke-width:.8}
+  .graphe .cible{stroke:var(--warn);stroke-width:.9;stroke-dasharray:3 3;opacity:.8}
+  .graphe .etiqCible{fill:var(--warn);font-size:7px;opacity:.9}
+  .graphe .val{fill:var(--txt);font-size:8px;font-weight:600}
+  .graphe .axe{fill:var(--faible);font-size:6.5px}
+  /* Courbe de poids */
+  .graphe .reel{fill:none;stroke:var(--accent);stroke-width:2;
+                stroke-linejoin:round;stroke-linecap:round}
+  .graphe .proj{fill:none;stroke:var(--faible);stroke-width:1.4;
+                stroke-dasharray:4 4;opacity:.75}
+  .graphe .pt{fill:var(--accent);stroke:var(--carte);stroke-width:1.6}
+  .leg i.cAtt{background:var(--ok)} .leg i.cSous{background:var(--accent)}
+  .leg i.cDoute{background:#2b3038;border:1px solid var(--bord)}
+  .leg i.tRee{background:var(--accent)} .leg i.tProj{background:var(--faible)}
+
+  /* ── Carte d'objectif ────────────────────────────────────────────────
+     Traitée comme une couverture et pas comme un bloc parmi d'autres : c'est
+     la seule question que JB pose vraiment, tout le reste de l'onglet en est
+     la démonstration. */
+  .bloc.heros{background:
+      radial-gradient(120% 140% at 0% 0%,rgba(88,166,255,.16),transparent 58%),
+      var(--carte);
+      border-color:var(--bord-fort)}
+  .grandChiffre{font-size:28px;font-weight:680;letter-spacing:-.03em;line-height:1.1}
+  .sousChiffre{color:var(--doux);font-size:12.5px;margin-top:4px}
+
+  /* Comparaison prévu / mesuré. Elle était noyée dans un paragraphe gris alors
+     que l'écart entre les deux EST l'information. Deux colonnes, même gabarit :
+     l'œil compare ligne à ligne sans avoir à lire. */
+  .duo{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:14px}
+  .duo>div{background:var(--surface);border:1px solid var(--bord);
+           border-radius:var(--r-m);padding:11px 12px}
+  .duo .quoi{font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;
+             color:var(--faible);font-weight:600;margin-bottom:6px}
+  .duo .val{font-size:17px;font-weight:650;letter-spacing:-.02em;line-height:1.2}
+  .duo .det{color:var(--doux);font-size:11.5px;margin-top:3px;line-height:1.4}
+  .duo .absent{color:var(--faible);font-size:11.5px;line-height:1.45;font-weight:400}
+  .duo>div.ecart{border-color:rgba(224,104,95,.4);
+                 background:rgba(224,104,95,.07)}
+  .duo>div.ecart .val{color:#f0857c}
+  .h2val{float:right;text-transform:none;letter-spacing:0;font-weight:500;
+         color:var(--doux)}
+  /* Un conseil intercalé n'est pas une carte de plus : pas de titre, fond plus
+     sobre, pour qu'il se lise comme la légende du graphe qui précède. */
+  .bloc.conseilBloc{background:var(--surface);padding:13px 14px;box-shadow:none}
+  /* Pastille de ton. Un liseré de 3 px se remarque mal sur un fond sombre ;
+     une pastille colorée donne le registre du message avant même de le lire. */
+  .ins{position:relative;border-left:none;padding-left:34px}
+  .ins::before{position:absolute;left:0;top:1px;width:23px;height:23px;
+               border-radius:7px;display:grid;place-items:center;font-size:12px}
+  .ins.alerte::before{content:"!";background:rgba(224,104,95,.16);color:#f0857c;
+                      font-weight:700}
+  .ins.conseil::before{content:"→";background:var(--accent-sourd);color:var(--accent)}
+  .ins.constat::before{content:"i";background:rgba(255,255,255,.07);
+                       color:var(--doux);font-style:italic;font-weight:600}
+  .leg{display:flex;gap:12px;flex-wrap:wrap;color:var(--faible);font-size:11px;
+       margin-top:9px}
+  .leg i{display:inline-block;width:9px;height:9px;border-radius:2px;
+         margin-right:4px;vertical-align:-1px;font-style:normal}
+
+  /* ── Carte de repas ─────────────────────────────────────────────────
+     Les aliments vivent DEDANS, séparés par des filets. Avant, chaque aliment
+     était une carte flottante : un dîner de quatre lignes produisait quatre
+     objets identiques sans lien visible entre eux, et la hiérarchie repas →
+     aliments n'existait que dans l'espacement. */
+  .repasCarte{background:var(--carte);border:1px solid var(--bord);
+              border-radius:var(--r-l);margin-bottom:11px;overflow:hidden;
+              box-shadow:var(--ombre)}
+  .repasHaut{display:flex;justify-content:space-between;align-items:baseline;
+             padding:11px 15px;background:rgba(255,255,255,.022);
+             border-bottom:1px solid var(--bord);
+             font-size:11px;text-transform:uppercase;letter-spacing:.09em;
+             font-weight:600;color:var(--faible)}
+  .repasHaut .kc{text-transform:none;letter-spacing:0;font-size:12px;
+                 font-weight:500;color:var(--doux)}
+  .repasCarte .ligne + .ligne{border-top:1px solid var(--bord)}
+
+  .ligne{display:flex;justify-content:space-between;align-items:center;gap:10px;
+         padding:12px 15px;background:none;border:none;border-radius:0;
+         margin:0;box-shadow:none}
+  .ligne b{font-weight:500;font-size:14.5px;letter-spacing:-.005em}
+  /* Zone de frappe portée à 44 px (recommandation Apple) sans grossir le glyphe :
+     c'est le padding qui s'étend, pas le « × ». Un bouton de 20 px se rate une
+     fois sur trois au pouce, et ici le rater veut dire supprimer la mauvaise
+     ligne. */
+  .del{background:none;border:none;color:var(--faible);font-size:19px;
+       min-width:44px;min-height:44px;margin:-11px -8px -11px 0;cursor:pointer}
+  .del:active{color:var(--danger);transform:none}
+
+  dialog{border:none;border-radius:20px;background:var(--carte);color:var(--txt);
+         padding:22px;width:min(360px,92vw);border:1px solid var(--bord);
+         box-shadow:0 24px 60px rgba(0,0,0,.6);
+         animation:monte .22s var(--sortie)}
+  dialog::backdrop{background:rgba(0,0,0,.62);
+                   -webkit-backdrop-filter:blur(5px);backdrop-filter:blur(5px)}
+  @keyframes monte{from{opacity:0;transform:translateY(14px) scale(.97)}}
+  /* Respect de « réduire les animations » : une préférence système ignorée est
+     un défaut d'accessibilité, pas un détail de style. */
+  @media (prefers-reduced-motion:reduce){
+    *,*::before,*::after{animation-duration:.01ms !important;
+                         transition-duration:.01ms !important}
+  }
+  #g{width:100%;padding:15px;font-size:26px;text-align:center;border-radius:11px;
+     border:1px solid var(--bord);background:var(--bg);margin:14px 0 4px;
+     -moz-appearance:textfield;appearance:textfield}
+  #g::-webkit-outer-spin-button,#g::-webkit-inner-spin-button{
+     -webkit-appearance:none;margin:0}
+  .presets{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin:10px 0 16px}
+  .presets button{padding:11px 0;border-radius:9px;font-size:15px;
+                  border:1px solid var(--bord);background:var(--bg);color:var(--doux)}
+  .presets button:active{border-color:var(--accent);color:var(--txt)}
+  .actions{display:flex;gap:9px}
+  .actions button{flex:1;padding:14px;border-radius:11px;border:none;font-size:16px;font-weight:500}
+  .prim{background:var(--accent);color:#06121c}
+  .sec{background:var(--bord);color:var(--txt)}
+  .apercu{color:var(--doux);font-size:13px;text-align:center;min-height:19px}
+  .vide{color:var(--doux);text-align:center;padding:26px 10px;font-size:14px}
+
+  /* ── fiche « aliment maison » ─────────────────────────────────────
+     Deux colonnes et pas une : sept champs empilés dépassent la hauteur
+     d'écran d'un téléphone, et un formulaire qu'il faut faire défiler pour
+     trouver le bouton « Enregistrer » ne se remplit jamais en entier.
+     Le sélecteur de mode réutilise .repas (deux colonnes au lieu de quatre). */
+  #dlgM{width:min(400px,94vw)}
+  #dlgM #mMode{grid-template-columns:repeat(2,1fr)}
+  #mNom{width:100%;padding:12px;font-size:16px;border-radius:10px;
+        border:1px solid var(--bord);background:var(--bg);margin:12px 0 2px}
+  #mPoidsLigne{display:block;margin:8px 0 2px}
+  .grille{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0 10px}
+  .grille label:first-child{grid-column:1 / -1}   /* les kcal sur toute la largeur */
+  #dlgM label{display:block}
+  #dlgM label .meta{display:block;margin-bottom:3px;font-size:11.5px}
+  #dlgM .grille input,#mPoids{width:100%;padding:11px;font-size:16px;
+        border-radius:9px;border:1px solid var(--bord);background:var(--bg);
+        -moz-appearance:textfield;appearance:textfield}
+  /* 16px minimum sur les champs : en dessous, iOS zoome à la mise au point et
+     l'utilisateur se retrouve avec un formulaire décadré. */
+  #dlgM input::-webkit-outer-spin-button,#dlgM input::-webkit-inner-spin-button{
+        -webkit-appearance:none;margin:0}
+  #dlgM .grille label:first-child input{font-size:22px;text-align:center;padding:13px}
+  #res .del{background:none;border:none;color:var(--doux);font-size:19px;
+            line-height:1;padding:0 2px;margin-left:6px}
+
+  /* ══════════════════════════════════════════════════════════════════
+     DESKTOP — additif, à partir de 900 px
+     ──────────────────────────────────────────────────────────────────
+     Tout le desktop tient dans les media queries ci-dessous, et RIEN
+     au-dessus n'a été modifié : la version mobile est validée, elle ne
+     doit pas bouger d'un pixel. Toute règle ajoutée ici doit pouvoir
+     être supprimée d'un bloc sans rien casser en dessous de 900 px.
+
+     Le pari de fond : sur grand écran on ne manque pas de place, on
+     manque de PROXIMITÉ. Étirer les mêmes blocs sur 1900 px éloigne
+     chaque chiffre de son voisin sans rien apporter — c'est ce que
+     faisait l'app avant : des jauges de 1800 px de long et un solde
+     qui disparaissait au premier défilement. On borne donc les
+     largeurs, et on dépense l'espace gagné à rendre le résumé
+     PERMANENT plutôt qu'à le diluer.
+     ══════════════════════════════════════════════════════════════════ */
+  @media (min-width:900px){
+
+    /* ── Cadre commun : borné et centré ──────────────────────────── */
+    header,main{max-width:1180px;margin-left:auto;margin-right:auto}
+    header{padding:28px 22px 15px}
+    h1{font-size:23px}
+    /* Les onglets ne s'étirent plus sur toute la largeur : deux boutons
+       de 700 px de large ne se lisent pas comme des onglets, et le fond
+       de la barre qui les porte encore moins. On leur donne la largeur
+       de leur contenu, alignée sur le bord gauche de la colonne — d'où
+       le `max()` : au-delà de 1180 px le contenu est centré et son bord
+       gauche vaut (50% − 590px + 22px) ; en dessous, il colle au
+       rembourrage de 22 px comme le reste. Même formule que le bouton
+       d'ajout, pour que les deux tombent sur les mêmes verticales. */
+    .onglets{width:max-content;max-width:none;
+             grid-template-columns:repeat(2,152px);
+             margin:0 0 20px max(22px,calc(50% - 590px + 22px))}
+    /* Le grand rembourrage du bas servait à ne pas cacher la dernière
+       ligne sous le bouton flottant ; celui-ci ne flotte plus au-dessus
+       du contenu ici. */
+    main{padding:0 22px 64px}
+
+    /* ── Journal : deux colonnes ─────────────────────────────────── */
+    /* L'ordre du DOM (résumé, navigation, repas) ne change pas — c'est
+       le bon ordre à la lecture d'un lecteur d'écran et au clavier.
+       Seul le PLACEMENT change, par zones nommées. La zone « resume »
+       couvre les deux rangées : c'est ce qui donne au bloc collant la
+       hauteur sur laquelle glisser. */
+    /* ⚠️ `:not([hidden])` OBLIGATOIRE. `montre()` bascule les onglets avec
+       `.hidden = true`, et le navigateur applique le `display:none`
+       correspondant depuis SA feuille de style — donc battu par n'importe
+       quelle déclaration de `display` de notre part. Sans ce garde, le
+       journal restait affiché SOUS les tendances. C'est le même piège que
+       celui documenté plus haut pour `dialog.feuille[open]` ; il coûte une
+       seconde à écrire et se voit une capture d'écran plus tard. */
+    #vueJournal:not([hidden]){display:grid;align-items:start;column-gap:24px;
+                grid-template-columns:minmax(0,1fr) 336px;
+                grid-template-areas:"nav resume" "repas resume"}
+    #vueJournal .resume.heros{grid-area:resume;position:sticky;top:20px;
+                              margin-bottom:0}
+    #vueJournal .nav{grid-area:nav;margin:0 0 14px}
+    #vueJournal #lignes{grid-area:repas;min-width:0}
+
+    /* Le solde est l'information qu'on vient chercher : à droite il a la
+       place de respirer, on lui rend la taille que le mobile lui refusait. */
+    .resume.heros .kcal{font-size:29px}
+    .resume.heros{padding:18px 18px 16px;gap:13px}
+
+    /* La navigation de jour cesse d'être une barre pleine largeur avec
+       deux flèches aux extrémités : à la souris on vise, on n'a pas
+       besoin que la cible fasse 700 px de large. */
+    #vueJournal .nav{justify-content:flex-start;gap:8px}
+    #vueJournal .nav .jour{flex:0 0 auto;text-align:left;margin-left:6px}
+
+    /* ── Tendances : une colonne, centrée ────────────────────────── */
+    /* Délibérément PAS une grille de graphes. Chaque conseil est posé
+       juste après le graphe qu'il commente (voir le commentaire de
+       #vueTend dans le corps) ; en deux colonnes un conseil se
+       retrouverait à côté d'un graphe qui n'est pas le sien, et la
+       légende deviendrait un contresens. Un graphe étiré sur 1900 px
+       est illisible de toute façon : ses points s'écartent, ses
+       étiquettes non. */
+    /* On borne le CONTENU, pas le <main> : le main reste la colonne
+       centrée de 1180 px commune aux deux onglets, et les blocs
+       démarrent donc sur la même verticale que le journal. Centrer
+       #vueTend lui-même le décalait de 178 px vers la droite, et tout
+       sautait latéralement à chaque changement d'onglet. */
+    #tendCorps{max-width:780px}
+
+    /* ── Feuille d'ajout : fenêtre, plus plein écran ─────────────── */
+    /* ⚠️ On ne touche PAS au `display` ici : il reste porté par
+       `dialog.feuille[open]`. Une déclaration de `display` sur
+       `dialog.feuille` tout court battrait le `display:none` que l'UA
+       applique aux dialogues fermés, et la feuille resterait affichée
+       en bas de page (le bug du 2026-09-05). */
+    /* Hauteur AUTO plafonnée, pas une hauteur fixe : à l'ouverture la
+       feuille ne contient que la recherche et les raccourcis, et une
+       fenêtre de 720 px pour 400 px de contenu est un grand rectangle
+       vide. Elle grandit avec les résultats jusqu'au plafond, où
+       `.res` prend le relais et défile.
+       ⚠️ `fit-content` et PAS `auto` : le navigateur pose `top:0` ET
+       `bottom:0` sur un <dialog> modal, et la règle de positionnement
+       absolu veut qu'avec les deux fixés, une hauteur `auto` soit
+       résolue pour remplir l'espace — la feuille restait donc collée à
+       son plafond de 720 px même vide (mesuré : 406 px de contenu). */
+    dialog.feuille{width:min(660px,92vw);max-width:none;
+                   height:fit-content;max-height:min(78vh,720px);
+                   margin:auto;border:1px solid var(--bord);
+                   border-radius:var(--r-l);background:var(--carte);
+                   box-shadow:0 24px 60px rgba(0,0,0,.6);
+                   animation:monte .22s var(--sortie)}
+    .feuilleHaut{padding:16px 18px 12px}
+    dialog.feuille .rech{padding:14px 18px 0}
+    /* `flex:1` (règle mobile) demandait à la liste de remplir toute la
+       hauteur disponible. En plein écran c'est exactement ce qu'on veut ;
+       ici le navigateur pose `top:0;bottom:0` sur le <dialog> pour le
+       centrer, donc « disponible » = la fenêtre entière, et la feuille
+       restait scotchée à son plafond de 720 px même vide. En `0 1 auto`
+       elle prend sa hauteur naturelle et ne rétrécit qu'au plafond. */
+    dialog.feuille .res{flex:0 1 auto;padding:0 18px 18px}
+
+    /* ── Bouton d'ajout ──────────────────────────────────────────── */
+    /* Le rond flottant est une réponse au pouce. À la souris, un bouton
+       nommé vaut mieux qu'un pictogramme : on lit avant de cliquer.
+       Le libellé est posé en pseudo-éléments pour ne pas toucher au
+       HTML — l'`aria-label` du bouton porte déjà le nom accessible. */
+    #fab{width:auto;height:50px;border-radius:25px;
+         padding:0 20px 0 16px;font-size:0;display:flex;
+         align-items:center;gap:9px;
+         right:max(22px,calc(50% - 590px + 22px));bottom:26px}
+    #fab::before{content:'+';font-size:25px;font-weight:300;line-height:1}
+    #fab::after{content:'Ajouter';font-size:14.5px;font-weight:600;
+                letter-spacing:-.01em}
+  }
+
+  /* ── États de survol ───────────────────────────────────────────────
+     L'app ne connaissait que `:active`, c'est-à-dire le doigt. À la
+     souris, une interface qui ne réagit qu'au clic paraît morte : on ne
+     sait pas ce qui est cliquable avant d'avoir essayé. `hover:hover`
+     écarte les tablettes et les écrans tactiles larges, où un survol
+     « collant » resterait allumé après le tap.
+     ─────────────────────────────────────────────────────────────────── */
+  @media (min-width:900px) and (hover:hover){
+    .onglets button:not(.on):hover{color:var(--txt);background:var(--surface)}
+    .nav button:not([disabled]):hover{background:var(--carte-h);
+                                      color:var(--txt);border-color:var(--bord-fort)}
+    .res li:hover{background:var(--carte-h);border-color:var(--bord-fort);
+                  cursor:pointer}
+    .repas button:hover{border-color:var(--bord-fort);color:var(--txt)}
+    #fab:hover{filter:brightness(1.07);
+               box-shadow:0 8px 26px rgba(88,166,255,.5),0 2px 6px rgba(0,0,0,.5)}
+    dialog button:hover{filter:brightness(1.12)}
+    .ligne:hover{background:var(--carte-h)}
+
+    /* La croix de suppression ne s'affiche qu'au survol de sa ligne :
+       une colonne de croix en permanence transforme un journal en
+       formulaire. Elle reste visible au FOCUS clavier — sinon on la
+       rendrait inatteignable sans souris, ce qui échangerait un défaut
+       d'esthétique contre un défaut d'accessibilité. */
+    .ligne .del{opacity:0;transition:opacity .13s var(--sortie)}
+    .ligne:hover .del,.ligne .del:focus-visible{opacity:1}
+    .ligne .del:hover{color:var(--danger)}
+  }
+</style>
+</head>
+<body>
+<header><h1>Journal</h1><span class="jour" id="dateJour"></span></header>
+
+<div class="onglets">
+  <button id="ongJournal" class="on">Journal</button>
+  <button id="ongTend">Tendances</button>
+</div>
+
+<main id="vueTend" hidden>
+  <!-- Les conseils ne sont plus empilés en tête : chacun est posé APRÈS le
+       graphe qu'il commente. Quatre encarts d'affilée avant le premier chiffre
+       se lisent comme une notice ; intercalés, ils se lisent comme des légendes. -->
+  <div id="tendCorps"></div>
+</main>
+
+<main id="vueJournal">
+  <div class="resume heros">
+    <div class="jauges" id="jauges"></div>
+    <div class="duo" id="duoJour"></div>
+    <div class="solde" id="solde" hidden></div>
+    <div class="totalLigne">
+      <div><div class="kcal" id="kcal">0 kcal</div>
+           <div class="macros" id="estim" style="text-align:left"></div></div>
+      <div class="macros" id="macros"></div>
+    </div>
+  </div>
+
+  <div class="nav">
+    <button id="prec" title="Jour précédent">‹</button>
+    <div class="jour" id="navJour"></div>
+    <button id="suiv" title="Jour suivant">›</button>
+  </div>
+  <div id="lignes"></div>
+</main>
+
+
+<dialog id="dlg">
+  <div class="nom" id="dNom"></div>
+  <div class="meta" id="dMeta"></div>
+  <div class="avert" id="dAvert"></div>
+  <div class="repas" id="repas"></div>
+  <input id="g" type="number" inputmode="decimal" step="1" min="1" value="100">
+  <div class="apercu" id="apercu"></div>
+  <div class="presets">
+    <button data-g="30">30</button><button data-g="50">50</button>
+    <button data-g="100">100</button><button data-g="150">150</button>
+    <button data-g="200">200</button>
+  </div>
+  <div class="actions">
+    <button class="sec" id="annuler">Annuler</button>
+    <button class="prim" id="valider">Ajouter</button>
+  </div>
+</dialog>
+
+<button id="fab" aria-label="Ajouter un aliment">+</button>
+
+<dialog id="dlgAjout" class="feuille">
+  <div class="feuilleHaut">
+    <b>Ajouter</b>
+    <button id="ajFermer" aria-label="Fermer">✕</button>
+  </div>
+  <div class="rech">
+    <div class="barre">
+      <input id="q" type="search" inputmode="search" autocomplete="off"
+             placeholder="Aliment ou code-barres…" enterkeyhint="search">
+      <button id="scan" title="Scanner un code-barres">📷</button>
+      <button id="maison" title="Créer un aliment maison">➕</button>
+    </div>
+    <!-- `capture` ouvre directement l'appareil photo arrière. C'est un champ
+         fichier, pas un flux caméra : ça fonctionne donc en HTTP, contrairement
+         à getUserMedia qui exige une origine sécurisée. -->
+    <input id="photo" type="file" accept="image/*" capture="environment" hidden>
+    <video id="flux" playsinline muted></video>
+    <div class="etat" id="etat"></div>
+    <div class="rapide" id="rapide"></div>
+    <div class="pastilles" id="pastilles"></div>
+  </div>
+  <ul class="res" id="res"></ul>
+</dialog>
+
+<dialog id="dlgRep">
+  <div class="nom" style="margin-bottom:3px">Reprendre un repas</div>
+  <div class="meta" style="margin-bottom:14px">Il sera ajouté à aujourd'hui.</div>
+  <div id="repListe" style="max-height:52vh;overflow:auto"></div>
+  <div class="actions" style="margin-top:16px">
+    <button id="repFermer">Fermer</button>
+  </div>
+</dialog>
+
+<dialog id="dlgProt">
+  <div class="nom" style="margin-bottom:3px">Rattraper les protéines</div>
+  <div class="meta" id="protReste" style="margin-bottom:14px"></div>
+  <div id="protListe" style="max-height:52vh;overflow:auto"></div>
+  <div class="actions" style="margin-top:16px">
+    <button id="protFermer">Fermer</button>
+  </div>
+</dialog>
+
+<dialog id="dlgM">
+  <div class="nom">Aliment maison</div>
+  <div class="meta">Pour ce qui n'est ni dans CIQUAL ni sur un code-barres.</div>
+  <input id="mNom" type="text" placeholder="Nom du plat" autocomplete="off">
+
+  <!-- Le sélecteur existe parce qu'un emballage donne des valeurs pour 100 g,
+       alors qu'un plat qu'on cuisine on en connaît le total. Sans lui, il
+       faudrait faire la règle de trois de tête à chaque fois — et c'est
+       exactement là qu'on se trompe. La conversion est faite ici, côté
+       interface : le serveur ne connaît qu'une convention, pour 100 g. -->
+  <div class="repas" id="mMode"></div>
+  <label id="mPoidsLigne" style="display:none">
+    <span class="meta">Poids total de la portion (g)</span>
+    <input id="mPoids" type="number" inputmode="decimal" step="1" min="1" value="156">
+  </label>
+
+  <div class="grille">
+    <label><span class="meta">kcal</span>
+      <input id="m_energie_kcal" type="number" inputmode="decimal" step="0.1" min="0"></label>
+    <label><span class="meta">Protéines g</span>
+      <input id="m_proteines" type="number" inputmode="decimal" step="0.1" min="0"></label>
+    <label><span class="meta">Glucides g</span>
+      <input id="m_glucides" type="number" inputmode="decimal" step="0.1" min="0"></label>
+    <label><span class="meta">dont sucres g</span>
+      <input id="m_sucres" type="number" inputmode="decimal" step="0.1" min="0"></label>
+    <label><span class="meta">Lipides g</span>
+      <input id="m_lipides" type="number" inputmode="decimal" step="0.1" min="0"></label>
+    <label><span class="meta">Fibres g</span>
+      <input id="m_fibres" type="number" inputmode="decimal" step="0.1" min="0"></label>
+    <label><span class="meta">Sel g</span>
+      <input id="m_sel" type="number" inputmode="decimal" step="0.01" min="0"></label>
+  </div>
+  <div class="apercu" id="mApercu"></div>
+  <div class="actions">
+    <button class="sec" id="mAnnuler">Annuler</button>
+    <button class="prim" id="mValider">Enregistrer</button>
+  </div>
+</dialog>
+
+<script src="/static/zxing.js"></script>
+<script>
+const $ = s => document.querySelector(s);
+
+// Date du jour au format AAAA-MM-JJ dans le fuseau du navigateur.
+// ⚠️ Ne JAMAIS repasser par toISOString() ici : il convertit en UTC, donc entre
+// minuit et 2h (CEST) il renvoie la VEILLE. Le 2026-09-07 à 00h59, le journal
+// titrait « Aujourd'hui · dimanche 6 » et affichait les repas de la veille — et
+// comme le serveur, lui, savait qu'on était le 7, il traitait ce jour comme
+// passé : lecture du miroir GarminDB au lieu du cache, donc plus de badge
+// « en cours ». Un décalage d'affichage qui cassait aussi la dépense du jour.
+const isoLocal = (d = new Date()) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+  + `-${String(d.getDate()).padStart(2, '0')}`;
+let choix = null, favoris = [], repasChoisi = null;
+let jourVu = isoLocal();   // jour actuellement affiché
+
+const REPAS = [['matin','Matin'],['midi','Midi'],['gouter','Goûter'],['soir','Soir']];
+
+const nb = v => v == null ? '—' : (Math.round(v * 10) / 10);
+
+
+
+// ── Recherche. 250 ms de délai : assez pour ne pas marteler le serveur à chaque
+//    lettre, assez court pour que ça reste immédiat au doigt.
+let t = null;
+$('#q').addEventListener('input', e => {
+  clearTimeout(t);
+  const q = e.target.value.trim();
+  // Les pastilles de favoris disparaissent DÈS qu'une recherche commence.
+  // C'est le défaut visible sur la capture de JB : il tapait « Pomme » et les
+  // 10 favoris restaient affichés, repoussant « Pomme, sèche » hors de l'écran.
+  // Un raccourci qui masque le résultat qu'on cherche n'est plus un raccourci.
+  if (q.length < 2) { montreFavoris(); return; }
+  $('#pastilles').innerHTML = '';
+  t = setTimeout(() => chercher(q), 250);
+});
+
+// Les habitudes n'apparaissent qu'au moment de saisir. Le reste du temps
+// l'écran appartient au journal du jour : avec 8 aliments enregistrés, la
+// liste permanente repoussait le journal hors de l'écran — constaté sur un
+// jeu de test le 2026-08-30. L'accueil doit répondre à « qu'ai-je mangé »,
+// pas à « que mange-je souvent ».
+$('#q').addEventListener('focus', () => {
+  if($('#q').value.trim().length < 2) montreFavoris();
+});
+$('#q').addEventListener('blur', () => {
+  // Délai : sans lui, le vidage précède l'enregistrement du clic sur un
+  // élément de la liste, et l'appui reste sans effet.
+  setTimeout(() => {
+    if(document.activeElement !== $('#q') && $('#q').value.trim().length < 2){
+      $('#res').innerHTML = ''; $('#pastilles').innerHTML = '';
+    }
+  }, 180);
+});
+
+async function chercher(q){
+  try{
+    const r = await fetch('/api/recherche?q=' + encodeURIComponent(q));
+    const d = await r.json();
+    affiche(d.resultats, d.message);
+  }catch(_){ affiche([], 'Serveur injoignable'); }
+}
+
+function affiche(rs, msg){
+  const ul = $('#res');
+  if(!rs.length){
+    ul.innerHTML = `<li class="vide" style="cursor:default">${msg || 'Aucun résultat'}</li>`;
+    return;
+  }
+  ul.innerHTML = rs.map((r,i) => {
+    const calc = r.energie_calculee ? '<span class="tag calc">estimée</span>' : '';
+    const src  = r.source === 'off' ? '<span class="tag">code-barres</span>'
+               : r.source === 'manuel' ? '<span class="tag">maison</span>' : '';
+    const mq   = r.marque ? ' · ' + r.marque : '';
+    // Un aliment maison est supprimable depuis la liste : c'est le seul moyen de
+    // se débarrasser d'un nom mal tapé. Corriger des VALEURS ne demande pas ça —
+    // réenregistrer sous le même nom met à jour au lieu de dupliquer.
+    const del = r.source === 'manuel'
+      ? `<button class="del" data-del="${r.ref}" title="Retirer de mes aliments">×</button>` : '';
+    return `<li data-i="${i}"><div class="nom">${esc(r.nom)}${src}${del}</div>
+      <div class="meta">${nb(r.energie_kcal)} kcal${calc} · P ${nb(r.proteines)}
+      · G ${nb(r.glucides)} · L ${nb(r.lipides)} /100g${esc(mq)}</div></li>`;
+  }).join('');
+  [...ul.children].forEach(li => li.onclick = () => ouvre(rs[+li.dataset.i]));
+  ul.querySelectorAll('[data-del]').forEach(b => b.onclick = async ev => {
+    ev.stopPropagation();          // sinon le clic ouvre la fiche de grammage
+    const r = rs.find(x => x.ref === b.dataset.del);
+    if(!confirm(`Retirer « ${r.nom} » de tes aliments ?\n\n`
+              + `Ce qui est déjà au journal n'est pas touché.`)) return;
+    await fetch('/api/manuel/' + b.dataset.del, {method:'DELETE'});
+    chercher($('#q').value.trim());
+  });
+}
+
+const esc = s => (s||'').replace(/[<>&"]/g, c =>
+  ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));
+
+// ── Saisie du grammage
+function ouvre(r){
+  choix = r;
+  $('#dNom').textContent = r.nom;
+  $('#dMeta').textContent = `${nb(r.energie_kcal)} kcal / 100 g`
+    + (r.energie_calculee ? '  (estimée)' : '');
+  // Cette fiche exclut un déchet qu'on a en main en pesant (peau, noyau,
+  // coquille, arête). Sans ce rappel, peser brut fait une erreur muette et
+  // grosse : une banane de 166 g avec la peau = 150 kcal au lieu de ~100.
+  const av = $('#dAvert');
+  av.classList.toggle('on', !!r.poids_comestible);
+  if(r.poids_comestible){
+    av.textContent = '⚠️ Poids sans la peau / le noyau / la coquille. '
+      + 'Si tu as pesé brut, enlève le déchet du poids (une banane, c\'est '
+      + '~⅓ de peau).';
+  }
+  // Le dernier grammage saisi pour CET aliment plutôt qu'un 100 g universel.
+  // JB prend ses galettes de riz par 8 g et jamais par 100 : la valeur par
+  // défaut était fausse à chaque fois pour ce qu'il saisit le plus souvent.
+  $('#g').value = r.dernier_grammage || 100;
+  // Le repas est présélectionné d'après l'heure : dans l'immense majorité des
+  // cas il n'y a rien à toucher. C'est une suggestion, pas une contrainte.
+  repasChoisi = suggestion;
+  dessineRepas();
+  majApercu();
+  $('#dlg').showModal();
+  // Pas de focus automatique : ça ouvre le clavier et masque les préréglages,
+  // alors que 100 g convient la plupart du temps. Un geste de moins.
+}
+function dessineRepas(){
+  $('#repas').innerHTML = REPAS.map(([c, l]) =>
+    `<button data-r="${c}" class="${c === repasChoisi ? 'on' : ''}">${l}</button>`).join('');
+  $('#repas').querySelectorAll('button').forEach(b => b.onclick = () => {
+    repasChoisi = b.dataset.r; dessineRepas();
+  });
+}
+
+$('#g').addEventListener('input', majApercu);
+document.querySelectorAll('.presets button').forEach(b =>
+  b.onclick = () => { $('#g').value = b.dataset.g; majApercu(); });
+
+function majApercu(){
+  const g = parseFloat($('#g').value) || 0;
+  const k = choix?.energie_kcal;
+  $('#apercu').textContent = (k == null || !g) ? '' :
+    `${Math.round(k * g / 100)} kcal pour ${g} g`;
+}
+
+$('#annuler').onclick = () => $('#dlg').close();
+$('#valider').onclick = async () => {
+  const g = parseFloat($('#g').value);
+  if(!(g > 0)) return;
+  const btn = $('#valider'); btn.disabled = true; btn.textContent = '…';
+  try{
+    const r = await fetch('/api/journal', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({...choix, grammes: g, repas: repasChoisi})});
+    if(!r.ok) throw new Error(await r.text());
+    $('#dlg').close();
+    $('#q').value = ''; $('#res').innerHTML = ''; etat('');
+    jourVu = isoLocal();
+    await chargeJour();
+  }catch(e){ alert('Échec de l’enregistrement : ' + e.message); }
+  finally{ btn.disabled = false; btn.textContent = 'Ajouter'; }
+};
+
+// Une jauge = libellé, piste, valeur. La barre sature visuellement à 100 % mais
+// le CHIFFRE, lui, continue de monter : dépasser sa cible doit se lire, pas se
+// faire écrêter en silence. Le seuil « trop » est à +5 % et pas à +0 %, sinon la
+// jauge passe en alerte pour 3 kcal d'arrondi.
+function jauge(lib, v, cible, unite){
+  v = v || 0;
+  const pct = Math.min(100, cible ? v / cible * 100 : 0);
+  const cls = v > cible * 1.05 ? 'trop' : (v >= cible * 0.95 ? 'atteint' : '');
+  return `<div class="jauge"><span class="lib">${lib}</span>`
+       + `<span class="piste"><span class="barre ${cls}" style="width:${pct.toFixed(1)}%"></span></span>`
+       + `<span class="val">${Math.round(v)} / ${cible} ${unite}</span></div>`;
+}
+
+// ── Journal d'une journée, regroupé par repas
+let suggestion = 'midi', bornes = {};
+
+const AUJOURDHUI = () => isoLocal();
+
+function libelleJour(iso){
+  const d = new Date(iso + 'T12:00:00');
+  const j = AUJOURDHUI();
+  if(iso === j) return {titre:"Aujourd'hui", sous:d.toLocaleDateString('fr-FR',
+    {weekday:'long', day:'numeric', month:'long'})};
+  const hier = isoLocal(new Date(Date.now() - 864e5));
+  return {titre: iso === hier ? 'Hier'
+            : d.toLocaleDateString('fr-FR', {weekday:'long', day:'numeric', month:'long'}),
+          sous: iso === hier ? d.toLocaleDateString('fr-FR',
+            {weekday:'long', day:'numeric', month:'long'}) : ''};
+}
+
+async function chargeJour(){
+  const d = await (await fetch('/api/jour?d=' + jourVu)).json();
+  suggestion = d.repas_suggere || suggestion;
+  bornes = {premier: d.premier_jour, dernier: d.dernier_jour};
+
+  const lj = libelleJour(d.jour);
+  $('#navJour').innerHTML = `${lj.titre}${lj.sous ? `<small>${lj.sous}</small>` : ''}`;
+  // On ne propose pas de remonter avant la première saisie : il n'y a rien
+  // derrière. Vers l'avant en revanche, la borne est AUJOURD'HUI et surtout
+  // PAS `bornes.dernier` (= MAX(jour) du journal, donc la dernière saisie).
+  // Tant que rien n'est enregistré le jour même, ces deux dates diffèrent et
+  // borner sur la saisie enferme sur hier : on recule d'un jour et la flèche
+  // du retour est grisée. Un jour vide reste visitable — c'est justement
+  // celui où on va saisir.
+  $('#prec').disabled = !bornes.premier || jourVu <= bornes.premier;
+  $('#suiv').disabled = jourVu >= AUJOURDHUI();
+
+  // ── Jauges d'objectif ──
+  // Rien n'est affiché si l'API ne renvoie pas d'objectifs : une jauge sur une
+  // cible inventée est pire que pas de jauge, parce qu'elle a l'air de mesurer
+  // quelque chose. `objectifs` vaut null quand config/nutrition-profil.json est
+  // absent ou incomplet.
+  $('#jauges').innerHTML = d.objectifs
+    ? jauge('Calories', d.total.energie_kcal, d.objectifs.kcal, 'kcal')
+      + jauge('Protéines', d.total.proteines, d.objectifs.proteines, 'g')
+    : '';
+
+  // ── Solde du jour : ce qu'on a mangé moins ce que Garmin dit qu'on a brûlé ──
+  // Masqué si la dépense est inconnue. Et le jour COURANT est signalé « en
+  // cours » : Garmin n'a pas fini de consolider, son « repos » monte encore
+  // jusqu'à J+3 (mesuré le 2026-09-05). Afficher ce chiffre sans le dire
+  // laisserait croire à un déficit plus petit qu'il ne sera.
+  const dep = d.depense;
+  if(dep && dep.total){
+    const solde = d.total.energie_kcal - dep.total;
+    const kg = Math.abs(solde) * 7 / 7700;
+    $('#solde').hidden = false;
+    $('#solde').innerHTML =
+      `<span class="quoi">Solde du jour</span>`
+      + (dep.en_cours ? `<span><i>dépense en cours</i></span>` : '<span></span>');
+    // Le solde devient le chiffre principal. « Mangé » et « Dépensé » sont déjà
+    // écrits juste au-dessus dans les deux colonnes : les répéter en gros
+    // remplissait la carte sans rien ajouter, exactement ce que JB a reproché
+    // à l'ancienne disposition.
+    $('#kcal').innerHTML = `<span class="${solde < 0 ? 'deficit' : 'exces'}">`
+      + `${solde > 0 ? '+' : '−'}${Math.abs(Math.round(solde))}</span>`
+      + `<span style="font-size:15px;font-weight:500;color:var(--doux)"> kcal</span>`;
+    $('#estim').textContent = `${kg.toFixed(2)} kg/semaine à ce rythme`;
+  } else {
+    $('#solde').hidden = true;
+    $('#kcal').textContent = Math.round(d.total.energie_kcal) + ' kcal';
+    $('#estim').textContent = d.kcal_estimees
+      ? `dont ${Math.round(d.kcal_estimees)} estimées` : '';
+  }
+
+  // Le manque de protéines pilote l'action rapide : le bouton n'apparaît que
+  // s'il y a quelque chose à rattraper, et il porte le chiffre.
+  resteProt = (d.objectifs && jourVu === AUJOURDHUI())
+    ? Math.max(0, d.objectifs.proteines - (d.total.proteines || 0)) : 0;
+  dessineRapide();
+
+  $('#macros').innerHTML =
+    `P ${nb(d.total.proteines)} g · L ${nb(d.total.lipides)} g<br>`
+    + `G ${nb(d.total.glucides)} g · F ${nb(d.total.fibres)} g`;
+
+  // Mangé / dépensé en deux colonnes, comme prévu/mesuré dans Tendances : le
+  // solde est une SOUSTRACTION, la donner sans ses deux termes oblige à faire
+  // confiance au résultat sans pouvoir le vérifier d'un coup d'œil.
+  const dd = d.depense;
+  $('#duoJour').innerHTML = dd && dd.total
+    ? `<div><div class="quoi">Mangé</div>`
+      + `<div class="val">${Math.round(d.total.energie_kcal)}<span style="font-size:12px;font-weight:400"> kcal</span></div>`
+      + `<div class="det">${d.groupes.length} repas · P ${nb(d.total.proteines)} g</div></div>`
+      + `<div><div class="quoi">Dépensé</div>`
+      + `<div class="val">${Math.round(dd.total)}<span style="font-size:12px;font-weight:400"> kcal</span></div>`
+      + `<div class="det" style="font-size:11px;color:var(--faible)">`
+      + `repos ${nb(dd.repos)} · actif ${nb(dd.actif)}<br>`
+      + `${dd.pas ? dd.pas.toLocaleString('fr-FR') + ' pas' : '—'}`
+      + (dd.en_cours ? ' · <i>en cours</i>' : '') + `</div></div>`
+    : '';
+
+  // Une carte PAR REPAS, les aliments dedans séparés par des filets — au lieu
+  // d'une carte flottante par aliment. Un dîner de 4 lignes faisait 4 objets
+  // visuellement identiques et sans lien entre eux ; la hiérarchie repas →
+  // aliments n'existait que dans l'espacement. Moins d'objets, plus de sens.
+  $('#lignes').innerHTML = d.groupes.length
+    ? d.groupes.map(g => `
+        <div class="repasCarte">
+          <div class="repasHaut"><span>${g.libelle}</span>
+            <span class="kc">${Math.round(g.kcal)} kcal · P ${g.proteines} g</span></div>
+          ${g.lignes.map(l => `
+            <div class="ligne">
+              <div><b>${esc(l.nom)}</b>
+                <div class="meta">${l.grammes} g · ${Math.round(l.energie_kcal||0)} kcal
+                · ${l.horodatage.slice(11,16)}</div></div>
+              <button class="del" data-id="${l.id}" aria-label="Supprimer">×</button>
+            </div>`).join('')}
+        </div>`).join('')
+    : `<div class="vide">${d.jour === AUJOURDHUI()
+         ? 'Rien enregistré aujourd’hui' : 'Rien ce jour-là'}</div>`;
+
+  $('#lignes').querySelectorAll('.del').forEach(b => b.onclick = async () => {
+    // On capture la ligne AVANT de la supprimer : après le DELETE elle n'existe
+    // plus nulle part, et sans cette copie « Annuler » n'aurait rien à rejouer.
+    const ligne = d.lignes.find(x => String(x.id) === b.dataset.id);
+    await fetch('/api/journal/' + b.dataset.id, {method:'DELETE'});
+    chargeJour();
+    if(ligne) proposeAnnulation(ligne);
+  });
+}
+
+// ── Annulation d'une suppression ──────────────────────────────────────────
+//
+// Il n'y avait AUCUN retour en arrière : un « × » raté et la ligne était perdue,
+// il fallait tout ressaisir. Sur un bouton que je venais justement d'agrandir
+// parce qu'il se ratait au pouce — agrandir la cible réduit la fréquence de
+// l'erreur, ça n'en réduit pas le coût.
+//
+// Six secondes : assez pour voir le total bouger et comprendre qu'on s'est
+// trompé, assez court pour ne pas rester en travers de l'écran.
+let minuteurAnnul = null;
+function proposeAnnulation(ligne){
+  clearTimeout(minuteurAnnul);
+  document.querySelector('.annul')?.remove();
+  const el = document.createElement('div');
+  el.className = 'annul';
+  // Posé juste au-dessus de la barre du bas, hauteur mesurée et non devinée.
+  el.style.bottom = 'calc(20px + env(safe-area-inset-bottom))';
+  el.style.right = '92px';   // laisse le FAB dégagé
+  el.innerHTML = `<span>« ${esc(ligne.nom.slice(0, 26))} » supprimé</span>`
+               + `<button>Annuler</button>`;
+  el.querySelector('button').onclick = async () => {
+    clearTimeout(minuteurAnnul); el.remove();
+    // Endpoint DÉDIÉ, pas POST /api/journal : celui-ci attend des valeurs pour
+    // 100 g et force la date du jour. Y renvoyer une ligne de journal telle
+    // quelle multiplierait les valeurs par le grammage ET recréerait l'aliment
+    // au mauvais jour si la suppression portait sur une journée passée.
+    await fetch('/api/journal/restaurer', {method:'POST',
+      headers:{'Content-Type':'application/json'}, body: JSON.stringify(ligne)});
+    chargeJour();
+  };
+  document.body.appendChild(el);
+  minuteurAnnul = setTimeout(() => el.remove(), 6000);
+}
+
+// Réserve sous le contenu = hauteur réelle de la barre + une marge de respiration.
+// Mesurée après peinture : la barre grandit quand la ligne de solde apparaît.
+
+// ── Feuille d'ajout ───────────────────────────────────────────────────────
+//
+// La recherche vivait en haut de l'écran principal, en permanence. Elle ne sert
+// pourtant qu'au moment d'ajouter — le reste du temps elle prenait un tiers de
+// la hauteur pour ne rien dire. Elle est maintenant derrière un seul bouton.
+function ouvreAjout(){
+  $('#dlgAjout').showModal();
+  montreFavoris();
+  // Pas de focus automatique sur le champ : il ouvrirait le clavier et
+  // masquerait aussitôt les favoris et « repas passé », qui sont justement les
+  // deux chemins les plus courts. Même raisonnement que la fiche de grammage.
+}
+function fermeAjout(){
+  $('#dlgAjout').close();
+  $('#q').value = ''; $('#res').innerHTML = ''; $('#pastilles').innerHTML = '';
+  $('#etat').textContent = '';
+}
+$('#fab').onclick = ouvreAjout;
+$('#ajFermer').onclick = fermeAjout;
+// Le bouton « retour » d'Android ferme la feuille au lieu de quitter la page.
+$('#dlgAjout').addEventListener('close', () => {
+  $('#q').value = ''; $('#res').innerHTML = ''; $('#pastilles').innerHTML = '';
+});
+
+// ── Actions rapides : répéter un repas, rattraper les protéines ───────────
+//
+// Ces deux boutons existent parce que le parcours « chercher un aliment » ne
+// couvrait AUCUN des deux besoins réels observés : « j'ai mangé pareil qu'hier »
+// (demandé deux fois en une semaine, traité à la main les deux fois) et « il me
+// manque 139 g de protéines, je mange quoi ». Chercher par nom ne répond ni à
+// l'un ni à l'autre.
+let resteProt = 0;
+
+function dessineRapide(){
+  $('#rapide').innerHTML =
+      `<button id="bRep">↻ Repas passé</button>`
+    + (resteProt > 0
+        ? `<button id="bProt" class="fort">🥩 Protéines −${Math.round(resteProt)} g</button>`
+        : '');
+  $('#bRep').onclick = ouvreRepetition;
+  const bp = $('#bProt'); if(bp) bp.onclick = ouvreProteines;
+}
+
+async function ouvreRepetition(){
+  const d = await (await fetch('/api/repas-recents?limite=10')).json();
+  $('#repListe').innerHTML = d.repas.length ? d.repas.map((r, i) => `
+    <li data-r="${i}" style="list-style:none;background:var(--surface);
+        border:1px solid var(--bord);border-radius:var(--r-m);padding:12px 13px;
+        margin-bottom:7px;cursor:pointer">
+      <div class="nom">${esc(r.libelle)} · ${r.jour.slice(8)}/${r.jour.slice(5,7)}
+        <span class="tag">${r.n} aliment${r.n > 1 ? 's' : ''}</span></div>
+      <div class="meta">${Math.round(r.kcal)} kcal · P ${r.proteines} g</div>
+      <div class="meta">${esc(r.apercu)}</div>
+    </li>`).join('')
+    : `<div class="vide">Aucun repas passé à reprendre.</div>`;
+  $('#repListe').querySelectorAll('[data-r]').forEach(li => li.onclick = async () => {
+    const r = d.repas[+li.dataset.r];
+    li.style.opacity = .5;
+    const res = await fetch('/api/repeter', {method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({jour: r.jour, repas: r.repas, vers_repas: suggestion})});
+    if(res.ok){ $('#dlgRep').close(); fermeAjout(); chargeJour(); }
+    else { li.style.opacity = 1; alert('Échec de la reprise du repas.'); }
+  });
+  $('#dlgRep').showModal();
+}
+
+async function ouvreProteines(){
+  const d = await (await fetch(`/api/proteines?reste=${Math.round(resteProt)}&limite=12`)).json();
+  $('#protReste').textContent =
+    `Il te manque ${Math.round(d.reste_g)} g. Voici ce qu'apporte une portion de ${d.portion_g} g.`;
+  $('#protListe').innerHTML = d.resultats.map((r, i) => `
+    <li data-p="${i}" style="list-style:none;background:var(--surface);
+        border:1px solid var(--bord);border-radius:var(--r-m);padding:11px 13px;
+        margin-bottom:6px;cursor:pointer">
+      <div class="nom">${esc(r.nom)}</div>
+      <div class="meta"><b style="color:var(--accent)">${r.p_portion} g de protéines</b>
+        · ${r.kcal_portion} kcal · couvre ${r.part_du_reste} % du manque</div>
+    </li>`).join('');
+  $('#protListe').querySelectorAll('[data-p]').forEach(li => li.onclick = () => {
+    const r = d.resultats[+li.dataset.p];
+    $('#dlgProt').close();
+    // On ouvre la fiche de grammage pré-remplie à la portion de référence :
+    // proposer un aliment sans permettre de l'enregistrer serait un cul-de-sac.
+    ouvre({...r, dernier_grammage: d.portion_g,
+           energie_kcal: r.energie_kcal, proteines: r.proteines,
+           source: r.source === 'ciqual' ? 'ciqual' : 'manuel'});
+  });
+  $('#dlgProt').showModal();
+}
+$('#repFermer').onclick = () => $('#dlgRep').close();
+$('#protFermer').onclick = () => $('#dlgProt').close();
+
+// ── Onglet Tendances ──────────────────────────────────────────────────────
+// Graphe en barres, SVG écrit à la main. Trois couleurs qui veulent dire
+// quelque chose : atteint, sous la cible, et saisie douteuse — cette dernière
+// existe parce qu'une journée à 313 kcal n'est PAS une journée à jeun, et une
+// barre au ras du sol sans distinction raconterait le contraire.
+function graphe(serie, champ, cible, unite){
+  const n = serie.length, L = 320, H = 118, hautG = 10, bas = H - 20;
+  const vals = serie.map(x => x[champ] || 0);
+  const max = Math.max(cible || 0, ...vals) * 1.12 || 1;
+  const larg = L / n, ep = Math.max(4, larg * 0.56), r = Math.min(3, ep / 2);
+  const y = v => bas - (v / max) * (bas - hautG);
+
+  // Lignes de repère à 0, 50 et 100 % de la cible. Sans elles, une barre n'a
+  // pas d'échelle : on voit qu'elle est plus haute qu'une autre, pas de combien.
+  const reperes = cible ? [0.5, 1].map(k => {
+    const yy = y(cible * k);
+    return `<line x1="0" x2="${L}" y1="${yy.toFixed(1)}" y2="${yy.toFixed(1)}" `
+         + `class="${k === 1 ? 'cible' : 'grille'}"/>`
+         + (k === 1 ? `<text x="${L - 2}" y="${(yy - 3).toFixed(1)}" text-anchor="end" `
+                    + `class="etiqCible">${cible} ${unite}</text>` : '');
+  }).join('') : '';
+
+  const barres = serie.map((x, i) => {
+    const v = x[champ] || 0;
+    const cx = i * larg + (larg - ep) / 2;
+    const cls = !x.entrees ? 'vide'
+              : x.en_cours ? 'encours'
+              : !x.complet ? 'doute'
+              : (cible && v >= cible * 0.95) ? 'atteint' : 'sous';
+    const h = Math.max(v ? 1.5 : 0, bas - y(v));
+    const barre = `<rect class="b ${cls}" x="${cx.toFixed(1)}" y="${(bas - h).toFixed(1)}" `
+                + `width="${ep.toFixed(1)}" height="${h.toFixed(1)}" rx="${r}"/>`;
+    // Valeur écrite au-dessus des seules barres qui portent une information —
+    // en écrire 14 rendrait le graphe illisible, ce qu'on cherche à éviter.
+    const marquante = v > 0 && (v === Math.max(...vals) || i === n - 1);
+    const val = marquante
+      ? `<text x="${(cx + ep / 2).toFixed(1)}" y="${(y(v) - 4).toFixed(1)}" `
+      + `text-anchor="middle" class="val">${Math.round(v)}</text>` : '';
+    return barre + val;
+  }).join('');
+
+  const dates = serie.map((x, i) => (i % 3 === 0 || i === n - 1)
+    ? `<text x="${(i * larg + larg / 2).toFixed(1)}" y="${H - 5}" text-anchor="middle" `
+      + `class="axe">${x.jour.slice(8)}/${x.jour.slice(5, 7)}</text>` : '').join('');
+
+  return `<svg class="graphe" viewBox="0 0 ${L} ${H}" role="img">`
+       + `${reperes}${barres}${dates}</svg>`;
+}
+
+// Courbe de poids. Un graphe distinct des barres : le poids est une grandeur
+// continue et rare (une mesure tous les quelques jours), pas un cumul quotidien.
+// Le tracer en barres suggérerait une valeur pour chaque jour.
+function courbePoids(pesees, projection){
+  const reels = pesees.filter(w => !w.aberrante);
+  if(!reels.length) return '<div class="note">Aucune pesée fiable enregistrée.</div>';
+  const L = 320, H = 118, g = 26, bas = H - 20, haut = 10;
+  const proj = (projection?.possible ? projection.trace || [] : []).slice(0, 26);
+  const kgs = [...reels.map(w => w.kg), ...proj.map(p => p.kg),
+               projection?.objectif_kg].filter(v => v != null);
+  const min = Math.min(...kgs) - .6, max = Math.max(...kgs) + .6;
+  const y = kg => bas - (kg - min) / (max - min || 1) * (bas - haut);
+
+  // Axe des x en JOURS depuis la première pesée, pour que réel et projeté
+  // partagent la même échelle de temps.
+  const t0 = new Date(reels[0].jour).getTime();
+  const finJ = Math.max(proj.length * 7, 14,
+    (new Date(reels[reels.length - 1].jour).getTime() - t0) / 864e5);
+  const x = j => g + (j / (finJ || 1)) * (L - g - 6);
+
+  const ptsProj = proj.map(p => `${x(p.semaine * 7).toFixed(1)},${y(p.kg).toFixed(1)}`);
+  const ligneProj = ptsProj.length
+    ? `<polyline class="proj" points="${x(0).toFixed(1)},${y(reels[reels.length-1].kg).toFixed(1)} ${ptsProj.join(' ')}"/>` : '';
+
+  const ptsReel = reels.map(w =>
+    `${x((new Date(w.jour).getTime() - t0) / 864e5).toFixed(1)},${y(w.kg).toFixed(1)}`);
+  const ligneReel = reels.length > 1
+    ? `<polyline class="reel" points="${ptsReel.join(' ')}"/>` : '';
+  const points = reels.map((w, i) => {
+    const [cx, cy] = ptsReel[i].split(',');
+    return `<circle class="pt" cx="${cx}" cy="${cy}" r="3.4"/>`;
+  }).join('');
+
+  const cible = projection?.objectif_kg;
+  const ligneCible = cible != null && cible >= min && cible <= max
+    ? `<line class="cible" x1="${g}" x2="${L}" y1="${y(cible).toFixed(1)}" y2="${y(cible).toFixed(1)}"/>`
+      + `<text class="etiqCible" x="${L - 2}" y="${(y(cible) - 3).toFixed(1)}" text-anchor="end">${cible} kg</text>`
+    : '';
+
+  const axeY = [max - .6, min + .6].map(v =>
+    `<text class="axe" x="2" y="${(y(v) + 3).toFixed(1)}">${v.toFixed(1)}</text>`).join('');
+
+  return `<svg class="graphe" viewBox="0 0 ${L} ${H}" role="img">`
+       + `${ligneCible}${ligneProj}${ligneReel}${points}${axeY}</svg>`
+       + `<div class="leg"><span><i class="tRee"></i>pesées réelles</span>`
+       + `<span><i class="tProj"></i>trajectoire prévue</span></div>`;
+}
+
+// Jauge de progression vers l'objectif. Elle ne mesure PAS la même chose que
+// les jauges du journal (avancement dans une journée) : ici c'est le chemin
+// parcouru entre le poids de départ et la cible. Elle reste donc à zéro tant
+// qu'une deuxième pesée n'existe pas — et c'est l'information, pas un défaut.
+function jaugeObjectif(pr){
+  const dep = pr.depart_initial_kg ?? pr.depart_kg, cur = pr.depart_kg, cib = pr.objectif_kg;
+  if(dep == null || cib == null || dep <= cib) return '';
+  const fait = Math.max(0, dep - cur), total = dep - cib;
+  const pct = Math.min(100, fait / total * 100);
+  return `<div class="jauge" style="margin-top:12px">`
+       + `<span class="lib">Parcouru</span>`
+       + `<span class="piste"><span class="barre ${pct >= 99 ? 'atteint' : ''}" `
+       + `style="width:${pct.toFixed(1)}%"></span></span>`
+       + `<span class="val">${fait.toFixed(1)} / ${total.toFixed(1)} kg</span></div>`;
+}
+
+async function chargeTendances(){
+  const [st, ins] = await Promise.all([
+    (await fetch('/api/stats?jours=30')).json(),
+    (await fetch('/api/insights')).json(),
+  ]);
+  const q14 = st.serie.slice(-14);
+  const pr = st.projection || {};
+  const conseils = [...(ins.insights || [])];
+  const bloc = (titre, corps, extra = '') =>
+    `<div class="bloc"><h2>${titre}${extra}</h2>${corps}</div>`;
+
+  // Un conseil est consommé APRÈS chaque bloc de chiffres. S'il n'en reste
+  // plus, on n'insère rien : mieux vaut trois blocs commentés et deux nus que
+  // cinq commentaires dont deux inventés pour remplir.
+  const conseil = () => {
+    const i = conseils.shift();
+    if(!i) return '';
+    return `<div class="bloc conseilBloc"><div class="ins ${esc(i.ton)}">`
+         + `<b>${esc(i.titre)}</b><p>${esc(i.corps)}</p>`
+         + (i.action ? `<span class="act">→ ${esc(i.action)}</span>` : '')
+         + `</div></div>`;
+  };
+
+  const parts = [];
+
+  // ── 1. Objectif : la question à laquelle tout le reste sert de preuve ──
+  const p1 = pr.prevue || {};
+  const pm = pr.mesuree || {};
+  const jour = iso => new Date(iso).toLocaleDateString('fr-FR',
+    {day:'numeric', month:'short', year:'numeric'});
+
+  // L'écart entre prévu et mesuré est signalé visuellement dès qu'il dépasse
+  // 40 % : c'est le moment où « je suis un peu à côté » devient « je ne fais
+  // pas ce que je crois faire ». Un tableau qui présente les deux du même ton
+  // laisserait passer un facteur 2,5 sans que rien n'accroche l'œil.
+  const derape = pm.possible && p1.possible
+    && Math.abs(pm.perte_hebdo_kg - p1.perte_hebdo_kg) / p1.perte_hebdo_kg > .4;
+
+  parts.push(`<div class="bloc heros"><h2>Objectif ${pr.objectif_kg ?? '—'} kg</h2>`
+    + (p1.possible
+        ? `<div class="grandChiffre">${jour(p1.date)}</div>`
+          + `<div class="sousChiffre">au rythme prévu · ${p1.semaines} semaines</div>`
+          + jaugeObjectif(pr)
+        : `<div class="note">${esc(p1.raison || 'Projection impossible.')}</div>`)
+    + `<div class="duo">`
+      + `<div><div class="quoi">Rythme prévu</div>`
+        + (p1.possible
+            ? `<div class="val">${p1.perte_hebdo_kg.toFixed(2)} kg<span style="font-size:12px;font-weight:400">/sem</span></div>`
+              + `<div class="det">déficit ${pr.deficit_cible ?? 850} kcal/j<br>${jour(p1.date)}</div>`
+            : `<div class="absent">—</div>`)
+      + `</div>`
+      + `<div class="${derape ? 'ecart' : ''}"><div class="quoi">Rythme mesuré</div>`
+        + (pm.possible
+            ? `<div class="val">${pm.perte_hebdo_kg.toFixed(2)} kg<span style="font-size:12px;font-weight:400">/sem</span></div>`
+              + `<div class="det">déficit réel ${pr.deficit_mesure_kcal} kcal/j<br>${jour(pm.date)}</div>`
+            : `<div class="absent">${esc((pm.raison || 'pas encore calculable').replace(/\.$/, ''))}</div>`)
+      + `</div>`
+    + `</div>`
+    + (derape
+        ? `<div class="note">⚠️ Ton rythme réel est <b>${(pm.perte_hebdo_kg / p1.perte_hebdo_kg).toFixed(1)}×</b> `
+          + `celui que tu vises. La date de gauche est ton plan, celle de droite est ce que `
+          + `tes données décrivent — et un écart de cette taille se paie en masse maigre.</div>`
+        : `<div class="note">La date prévue tient compte du fait que le déficit se referme `
+          + `en maigrissant : 850 kcal/j à 87 kg, 650 à 77. Une projection linéaire annoncerait `
+          + `environ 3 semaines de moins — à tort.</div>`));
+  parts.push(conseil());
+
+  // ── 2. Poids ──
+  parts.push(bloc('Poids réel et trajectoire',
+    courbePoids(st.calibration.pesees, {...p1, objectif_kg: pr.objectif_kg})));
+  parts.push(conseil());
+
+  // ── 3. Apport ──
+  parts.push(bloc('Apport', graphe(q14, 'kcal', st.cibles.kcal, 'kcal')
+    + `<div class="leg"><span><i class="cAtt"></i>cible atteinte</span>`
+    + `<span><i class="cSous"></i>sous la cible</span>`
+    + `<span><i class="cDoute"></i>saisie incomplète</span></div>`,
+    `<span class="h2val">moy. 7 j ${st.moyennes.kcal_7j ?? '—'} kcal</span>`));
+  parts.push(conseil());
+
+  // ── 4. Protéines ──
+  parts.push(bloc('Protéines', graphe(q14, 'proteines', st.cibles.proteines, 'g'),
+    `<span class="h2val">moy. 7 j ${st.moyennes.proteines_7j ?? '—'} g</span>`));
+  parts.push(conseil());
+
+  // ── 5. Qualité de saisie — en dernier : c'est la note de bas de page qui
+  //     dit à quel point tout ce qui précède est solide. ──
+  const sa = st.saisie;
+  parts.push(bloc('Fiabilité des données',
+      `<div class="jauge"><span class="lib">Complets</span><span class="val">${sa.jours_complets} j</span></div>`
+    + `<div class="jauge"><span class="lib">Déclarés incomplets</span><span class="val">${sa.jours_declares_incomplets} j</span></div>`
+    + `<div class="jauge"><span class="lib">Vides</span><span class="val">${sa.jours_vides} j</span></div>`
+    + `<div class="note">${esc(sa.note)}`
+    + (st.premier_jour_saisi
+        ? ` Première saisie le ${st.premier_jour_saisi.split('-').reverse().join('/')} — `
+          + `les jours vides d'avant ne sont pas des oublis.` : '')
+    + `</div>`));
+
+  // Les conseils qui n'ont pas trouvé de place vont à la fin plutôt que d'être
+  // jetés : ils sont classés par importance, en perdre un serait perdre le moins
+  // urgent, mais les perdre en silence serait pire.
+  while(conseils.length) parts.push(conseil());
+
+  $('#tendCorps').innerHTML = parts.filter(Boolean).join('');
+
+  // Âge de l'analyse. Il se CALCULE ici : l'API renvoie `genere_a`, jamais
+  // `age_h` — que ce code lisait quand même, d'où le « il y a NaN j » affiché
+  // en pied de page (undefined < 24 est faux, on partait donc dans la branche
+  // des jours et undefined/24 vaut NaN). Un champ absent ne lève rien en JS,
+  // il traverse le calcul et ressort en toutes lettres à l'écran.
+  const ageH = (() => {
+    if(!ins.genere_a) return null;
+    const t = new Date(ins.genere_a).getTime();     // sans suffixe Z : heure locale
+    return Number.isNaN(t) ? null : (Date.now() - t) / 36e5;
+  })();
+
+  $('#tendCorps').insertAdjacentHTML('beforeend',
+    `<div class="note" style="text-align:center;padding:4px 0 10px">`
+    + (ageH === null
+        ? `Analyse pas encore générée`
+        : `Analyse générée ${ageH < 24 ? 'il y a ' + Math.round(ageH) + ' h'
+                                       : 'il y a ' + Math.floor(ageH/24) + ' j'}`)
+    + `</div>`);
+}
+
+let vue = 'journal';
+function montre(v){
+  vue = v;
+  const t = v === 'tendances';
+  $('#vueJournal').hidden = t;
+  $('#vueTend').hidden = !t;
+  // Le bouton d'ajout appartient au journal : on n'ajoute pas un aliment depuis
+  // un graphe de deux semaines.
+  $('#fab').style.display = t ? 'none' : '';
+  $('#ongJournal').classList.toggle('on', !t);
+  $('#ongTend').classList.toggle('on', t);
+  if(t) chargeTendances();
+}
+$('#ongJournal').onclick = () => montre('journal');
+$('#ongTend').onclick = () => montre('tendances');
+
+// ── Navigation entre les jours
+const decale = n => {
+  const d = new Date(jourVu + 'T12:00:00');
+  d.setDate(d.getDate() + n);
+  jourVu = isoLocal(d);
+  chargeJour();
+};
+$('#prec').onclick = () => decale(-1);
+$('#suiv').onclick = () => decale(1);
+
+// ── Balayage horizontal pour changer de jour ──────────────────────────────
+//
+// Trois conditions avant de déclencher, et chacune répare un geste raté :
+//
+// 1. **L'horizontal doit dominer.** Un pouce ne trace jamais une ligne droite :
+//    un scroll vertical part toujours un peu de travers. Sans le rapport 2:1,
+//    la liste changerait de jour pendant qu'on la fait défiler — et on perdrait
+//    sa place sans comprendre pourquoi.
+// 2. **60 px minimum.** En dessous, c'est une hésitation, pas une intention.
+// 3. **Les bornes des flèches font foi.** On relit `disabled` plutôt que de
+//    redériver la règle : deux copies d'une même limite finissent par diverger,
+//    et on se retrouverait à naviguer vers un jour que les boutons interdisent.
+//
+// Un balayage qui bute sur une borne ne fait rien, volontairement : pas
+// d'animation d'échec. L'absence de mouvement est déjà la réponse.
+(() => {
+  const SEUIL = 60, DOMINANCE = 2;
+  let x0 = null, y0 = null;
+
+  addEventListener('touchstart', e => {
+    // Un seul doigt : à deux, c'est un zoom ou un geste système.
+    // Et jamais depuis une boîte de dialogue ouverte, où le balayage
+    // appartient au contenu de la boîte.
+    if(e.touches.length !== 1 || vue !== 'journal' || document.querySelector('dialog[open]')){
+      x0 = null; return;
+    }
+    x0 = e.touches[0].clientX;
+    y0 = e.touches[0].clientY;
+  }, {passive: true});
+
+  addEventListener('touchend', e => {
+    if(x0 === null) return;
+    const dx = e.changedTouches[0].clientX - x0;
+    const dy = e.changedTouches[0].clientY - y0;
+    x0 = null;
+    if(Math.abs(dx) < SEUIL || Math.abs(dx) < Math.abs(dy) * DOMINANCE) return;
+    // Vers la gauche = on avance dans le temps, comme on tourne une page.
+    const bouton = dx < 0 ? $('#suiv') : $('#prec');
+    if(!bouton.disabled) decale(dx < 0 ? 1 : -1);
+  }, {passive: true});
+})();
+
+// ── Habitudes : on mange toujours la même chose. C'est le vrai raccourci.
+async function montreFavoris(){
+  const d = await (await fetch('/api/favoris')).json();
+  favoris = d.resultats;
+  if(!favoris.length){ $('#pastilles').innerHTML = ''; return; }
+  // Pastilles et non lignes pleine largeur : trois par ligne au lieu d'une, donc
+  // 10 favoris tiennent dans la place qu'en occupaient 3. C'est ce qui permet
+  // d'en montrer plus SANS repousser le journal hors de l'écran — le problème
+  // qui avait justifié de les cacher au départ.
+  $('#pastilles').innerHTML = favoris.slice(0, 10).map((f, i) =>
+    `<button data-f="${i}">${esc(f.nom.length > 24 ? f.nom.slice(0, 23) + '…' : f.nom)}`
+    + (f.dernier_grammage ? `<i>${Math.round(f.dernier_grammage)} g</i>` : '')
+    + `</button>`).join('');
+  $('#pastilles').querySelectorAll('[data-f]').forEach(b =>
+    b.onclick = () => ouvre(favoris[+b.dataset.f]));
+}
+
+// ─────────────────────────────────────────────── Scan de code-barres
+// Deux modes, choisis automatiquement :
+//   · origine sécurisée (HTTPS ou localhost) → flux vidéo, scan continu ;
+//   · sinon → photo unique via le champ fichier, qui lui marche en HTTP.
+// Le navigateur interdit getUserMedia hors origine sécurisée : ce n'est pas
+// contournable, c'est une règle de sécurité. Le mode photo est donc le seul
+// chemin viable tant que le service reste en http:// sur le réseau local.
+const SECURISE = window.isSecureContext;
+let lecteur = null, flux = null;
+
+function etat(t){ $('#etat').textContent = t || ''; }
+
+function zxing(){
+  if(!window.ZXing){ etat('Décodeur indisponible'); return null; }
+  if(!lecteur){
+    // On restreint aux formats d'emballage alimentaire : moins de faux
+    // positifs et un décodage nettement plus rapide qu'en cherchant tout.
+    const F = ZXing.BarcodeFormat, H = new Map();
+    H.set(ZXing.DecodeHintType.POSSIBLE_FORMATS,
+          [F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E, F.CODE_128]);
+    H.set(ZXing.DecodeHintType.TRY_HARDER, true);
+    lecteur = new ZXing.MultiFormatReader();
+    lecteur.setHints(H);
+  }
+  return lecteur;
+}
+
+$('#scan').onclick = () => SECURISE ? directBascule() : $('#photo').click();
+
+// ── Mode photo (HTTP) ──
+$('#photo').onchange = async e => {
+  const f = e.target.files?.[0];
+  e.target.value = '';                  // permet de reprendre la même photo
+  if(!f) return;
+  etat('Lecture du code…');
+  try{
+    const code = await decodeImage(f);
+    if(code){ etat('Code ' + code); $('#q').value = code; chercher(code); }
+    else etat('Aucun code-barres lisible — recadre plus près, bien à plat');
+  }catch(err){ etat('Échec de lecture : ' + err.message); }
+};
+
+async function decodeImage(fichier){
+  const url = URL.createObjectURL(fichier);
+  try{
+    const img = await new Promise((ok, ko) => {
+      const i = new Image(); i.onload = () => ok(i); i.onerror = ko; i.src = url;
+    });
+    const r = zxing(); if(!r) return null;
+    // Une photo d'iPhone fait plusieurs milliers de pixels de large. On la
+    // réduit : au-delà de ~1600 px le décodage ralentit sans gagner en fiabilité.
+    const max = 1600, ech = Math.min(1, max / Math.max(img.width, img.height));
+    const c = document.createElement('canvas');
+    c.width = Math.round(img.width * ech); c.height = Math.round(img.height * ech);
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    return lisCanvas(c);
+  } finally { URL.revokeObjectURL(url); }
+}
+
+function lisCanvas(c){
+  // On tente plusieurs orientations. ZXing balaie l'image par lignes
+  // horizontales : un code-barres photographié en portrait est donc
+  // invisible pour lui tant qu'on ne l'a pas redressé.
+  // La rotation intégrée de ZXing (`rotateCounterClockwise`) ne fonctionne pas
+  // ici — testé le 2026-08-30, échec sur une image pivotée de 90°. On fait donc
+  // tourner le canvas nous-mêmes : plus verbeux, mais ça marche et on le
+  // vérifie. Ordre choisi par probabilité : la plupart des photos sont droites.
+  for(const angle of [0, 90, 270, 180]){
+    const t = tourne(c, angle);
+    const d = t.getContext('2d').getImageData(0, 0, t.width, t.height);
+    try{
+      const bitmap = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(
+        new ZXing.RGBLuminanceSource(luminance(d), t.width, t.height)));
+      const r = zxing().decode(bitmap);
+      if(r?.getText()) return r.getText();
+    }catch(_){ }
+    finally{ try{ lecteur.reset(); }catch(_){ } }
+  }
+  return null;
+}
+
+function tourne(c, angle){
+  if(!angle) return c;
+  const droit = angle % 180 !== 0;
+  const o = document.createElement('canvas');
+  o.width  = droit ? c.height : c.width;
+  o.height = droit ? c.width  : c.height;
+  const x = o.getContext('2d');
+  x.translate(o.width / 2, o.height / 2);
+  x.rotate(angle * Math.PI / 180);
+  x.drawImage(c, -c.width / 2, -c.height / 2);
+  return o;
+}
+
+function luminance(imgData){
+  // ZXing attend un tableau de luminance, pas du RGBA.
+  const p = imgData.data, out = new Uint8ClampedArray(p.length / 4);
+  for(let i = 0, j = 0; i < p.length; i += 4, j++)
+    out[j] = (p[i] * 0.299 + p[i+1] * 0.587 + p[i+2] * 0.114) | 0;
+  return out;
+}
+
+// ── Mode direct (HTTPS uniquement) ──
+async function directBascule(){
+  if(flux) return directArret();
+  try{
+    flux = await navigator.mediaDevices.getUserMedia(
+      {video:{facingMode:'environment', width:{ideal:1280}}});
+  }catch(e){ etat('Caméra refusée : ' + e.name); return; }
+  const v = $('#flux');
+  v.srcObject = flux; v.style.display = 'block'; await v.play();
+  etat('Vise le code-barres…');
+  const c = document.createElement('canvas');
+  const boucle = () => {
+    if(!flux) return;
+    if(v.videoWidth){
+      c.width = v.videoWidth; c.height = v.videoHeight;
+      c.getContext('2d').drawImage(v, 0, 0);
+      const code = lisCanvas(c);
+      if(code){
+        directArret(); etat('Code ' + code);
+        $('#q').value = code; chercher(code); return;
+      }
+    }
+    requestAnimationFrame(boucle);
+  };
+  requestAnimationFrame(boucle);
+}
+
+function directArret(){
+  flux?.getTracks().forEach(t => t.stop());
+  flux = null;
+  const v = $('#flux'); v.srcObject = null; v.style.display = 'none';
+}
+
+if(!SECURISE)
+  $('#scan').title = 'Photo du code-barres (scan continu : nécessite HTTPS)';
+
+// ─────────────────────────────────────────────── aliment maison
+const MCHAMPS = ['energie_kcal','proteines','glucides','sucres','lipides','fibres','sel'];
+let mMode = '100';           // '100' = valeurs pour 100 g · 'portion' = pour la portion
+
+function mDessineMode(){
+  $('#mMode').innerHTML = [['100','pour 100 g'],['portion','pour la portion']]
+    .map(([c,l]) => `<button data-m="${c}" class="${c === mMode ? 'on' : ''}">${l}</button>`)
+    .join('');
+  $('#mMode').querySelectorAll('button').forEach(b => b.onclick = () => {
+    mMode = b.dataset.m;
+    $('#mPoidsLigne').style.display = mMode === 'portion' ? '' : 'none';
+    mDessineMode(); mApercu();
+  });
+}
+
+/** Ramène la saisie à des valeurs pour 100 g — la seule convention du serveur. */
+function mPour100(){
+  const lu = k => {
+    const v = $('#m_' + k).value.trim();
+    return v === '' ? null : parseFloat(v.replace(',', '.'));
+  };
+  const vals = {};
+  MCHAMPS.forEach(k => vals[k] = lu(k));
+  if(mMode === 'portion'){
+    const poids = parseFloat(($('#mPoids').value || '').replace(',', '.'));
+    if(!(poids > 0)) return null;
+    MCHAMPS.forEach(k => {
+      if(vals[k] != null) vals[k] = vals[k] / poids * 100;
+    });
+  }
+  return vals;
+}
+
+function mApercu(){
+  const v = mPour100();
+  const kc = v && v.energie_kcal != null ? v.energie_kcal : null;
+  if(kc == null){ $('#mApercu').textContent = ''; return; }
+  let t = `${Math.round(kc)} kcal pour 100 g`;
+  if(mMode === 'portion'){
+    const poids = parseFloat(($('#mPoids').value || '').replace(',', '.'));
+    if(poids > 0) t += ` · ta portion de ${Math.round(poids)} g sera pré-remplie`;
+  }
+  // Le serveur refuse au-delà de 900 kcal/100 g (plus que l'huile pure). On le
+  // dit AVANT l'envoi : à ce stade l'erreur est presque toujours d'avoir saisi
+  // le total sans basculer le sélecteur, et c'est réparable en un clic.
+  if(kc > 900) t += '  ⚠️ au-dessus de l\'huile pure — mauvais mode ?';
+  $('#mApercu').textContent = t;
+}
+
+$('#maison').onclick = () => {
+  $('#mNom').value = $('#q').value.trim();   // reprend ce qui a été tapé
+  MCHAMPS.forEach(k => $('#m_' + k).value = '');
+  mMode = '100';
+  $('#mPoidsLigne').style.display = 'none';
+  mDessineMode(); mApercu();
+  $('#dlgM').showModal();
+};
+$('#mAnnuler').onclick = () => $('#dlgM').close();
+['#mPoids', ...MCHAMPS.map(k => '#m_' + k)]
+  .forEach(sel => $(sel).oninput = mApercu);
+
+$('#mValider').onclick = async () => {
+  const nom = $('#mNom').value.trim();
+  if(nom.length < 2){ $('#mApercu').textContent = 'Il manque le nom.'; return; }
+  const v = mPour100();
+  if(!v){ $('#mApercu').textContent = 'Poids de la portion manquant.'; return; }
+  if(v.energie_kcal == null){ $('#mApercu').textContent = 'Il manque les kcal.'; return; }
+  const poidsPortion = mMode === 'portion'
+    ? parseFloat(($('#mPoids').value || '').replace(',', '.')) : null;
+  try{
+    const r = await fetch('/api/manuel', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({nom, ...v})});
+    const d = await r.json();
+    if(!r.ok){ $('#mApercu').textContent = d.detail || 'Refusé par le serveur'; return; }
+    $('#dlgM').close();
+    // Enchaîner sur la fiche de grammage : le besoin qui a fait naître ce
+    // formulaire était « pour ce midi ». Créer l'aliment sans pouvoir le
+    // manger dans le même geste manquerait la moitié du sujet.
+    ouvre(d.aliment);
+    if(poidsPortion > 0){ $('#g').value = Math.round(poidsPortion); majApercu(); }
+  }catch(_){ $('#mApercu').textContent = 'Serveur injoignable'; }
+};
+
+chargeJour();
+</script>
+</body>
+</html>

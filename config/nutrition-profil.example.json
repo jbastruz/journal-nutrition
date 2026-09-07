@@ -1,0 +1,33 @@
+{
+  "_lisez_moi": "Profil servant au recalcul de la dépense énergétique. Le « BMR » fourni par Garmin est une estimation de profil, pas un métabolisme de base — on recalcule et on affiche les deux.",
+  "poids_kg": 80.0,
+  "_poids": "Une valeur explicite plutôt que « la dernière pesée » : une pesée aberrante fausse tout le bilan en silence.",
+  "taille_cm": 178,
+  "age": 35,
+  "sexe": "h",
+  "_manquants": "taille_cm et age peuvent être à null : le bilan tourne alors sur les hypothèses hypothese_* et le DIT en clair. Il ne fait jamais passer une hypothèse pour une mesure.",
+  "hypothese_taille_cm": 178,
+  "hypothese_age": 35,
+  "proteines_g_par_kg": 2.0,
+  "_proteines": "1,6 g/kg est le socle ; 2,0-2,4 g/kg en déficit agressif + musculation pour préserver la masse maigre (fourchette de Garthe et al.).",
+  "apport_cible_kcal": 2400,
+  "_apport_cible": "TDEE estimé (dépense Garmin moyennée) − déficit cible. À recalculer quand l'activité ou le poids change.",
+  "plancher_kcal": 2200,
+  "deficit_cible_kcal": 850,
+  "_fenetre_offensive": "Le déficit max se referme en maigrissant (la dépense baisse). Recalculer tous les 5 kg.",
+  "depense_moyenne_kcal": 3250,
+  "_plafond_rythme": "Un déficit >1 %/sem ne se justifie qu'avec musculation 2-4×/sem ; le HIIT seul ne protège pas la masse maigre de la même façon.",
+  "repos_incertitude_kcal": 187,
+  "_repos_incertitude": "Écart-type de prédiction de Mifflin-St Jeor sur un individu (Frankenfield 2005). Sert à AFFICHER un intervalle, jamais à corriger la cible.",
+  "objectif_poids_kg": 75.0,
+  "_objectif_poids": "Cible pour la projection de l'onglet Tendances.",
+  "deficit_par_poids": {
+    "87": 850,
+    "84": 770,
+    "80": 700,
+    "77": 650
+  },
+  "_deficit_par_poids": "Interpolé linéairement entre paliers. En dessous du dernier palier l'apport rejoint le plancher : la projection s'arrête et le dit.",
+  "jours_saisie_incomplete": [],
+  "_jours_saisie_incomplete": "Journées que l'utilisateur déclare LUI-MÊME incomplètes. Liste explicite, jamais déduite. Seul l'utilisateur peut ajouter une date ici."
+}

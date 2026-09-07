@@ -1,0 +1,25 @@
+# Données personnelles — ne JAMAIS committer
+*.db
+*.db.bak*
+nutrition.db*
+.depense-jour.json
+.insights.json
+.nutrition-alerte-state.json
+config/nutrition-profil.json
+logs/
+*.log
+
+# Données CIQUAL (téléchargées via scripts/download_ciqual.sh)
+ciqual.db
+ciqual.zip
+alim_*.xml
+compo_*.xml
+const_*.xml
+sources_*.xml
+alim_grp_*.xml
+
+# Environnement
+.venv*/
+venv/
+__pycache__/
+.env
