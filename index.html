@@ -370,6 +370,46 @@
        min-width:44px;min-height:44px;margin:-11px -8px -11px 0;cursor:pointer}
   .del:active{color:var(--danger);transform:none}
 
+  /* ── Repas récurrent en attente ─────────────────────────────────────
+     Le plat du midi que JB mange presque tous les jours est PROPOSÉ, pas
+     saisi : grisé, hachuré à gauche, et surtout absent des totaux tant qu'il
+     n'a pas dit oui. Deux gestes seulement — valider, ou écarter pour ce
+     jour — parce qu'un troisième (« modifier ») ramènerait la saisie qu'on
+     cherche justement à éviter. */
+  .ligne.attente{background:repeating-linear-gradient(135deg,transparent 0 6px,
+                 rgba(255,255,255,.018) 6px 12px);
+                 border-left:3px solid var(--bord-fort)}
+  .ligne.attente>div:first-child{opacity:.55}
+  .ligne.attente b{font-style:italic}
+  .tag.att{color:var(--warn);border-color:rgba(214,162,56,.35);
+           background:rgba(214,162,56,.09)}
+  .ligne .act{display:flex;align-items:center;gap:2px;flex:0 0 auto;margin-right:-8px}
+  .ligne .ok{background:var(--accent-sourd);color:var(--accent);border:1px solid
+             rgba(88,166,255,.35);border-radius:99px;font-size:13px;font-weight:600;
+             padding:0 13px;min-height:36px;cursor:pointer}
+  .ligne .ok:active{filter:brightness(1.2)}
+  /* Le « 📌 » marque une ligne comme plat récurrent. Même zone de frappe que la
+     croix, glyphe plus discret : c'est un geste rare, pas un geste courant. */
+  .pin{background:none;border:none;color:var(--faible);font-size:14px;
+       min-width:40px;min-height:44px;margin:-11px 0;cursor:pointer;opacity:.6}
+  .pin:active{opacity:1}
+  .recToggle{display:flex;align-items:center;gap:9px;margin:2px 0 14px;
+             color:var(--doux);font-size:13px;cursor:pointer}
+  .recToggle input{width:18px;height:18px;accent-color:var(--accent);margin:0}
+  /* Fiche de gestion des récurrents */
+  .recItem{list-style:none;background:var(--surface);border:1px solid var(--bord);
+           border-radius:var(--r-m);padding:11px 13px;margin-bottom:7px}
+  .recItem.off{opacity:.5}
+  .recItem .rang{display:flex;align-items:center;gap:8px;margin-top:8px}
+  .recItem input{width:74px;padding:8px;font-size:16px;text-align:center;
+                 border-radius:8px;border:1px solid var(--bord);background:var(--bg);
+                 color:var(--txt);-moz-appearance:textfield;appearance:textfield}
+  .recItem input::-webkit-outer-spin-button,.recItem input::-webkit-inner-spin-button{
+                 -webkit-appearance:none;margin:0}
+  .recItem .rang button{padding:8px 11px;border-radius:99px;font-size:12.5px;
+                        border:1px solid var(--bord);background:var(--carte);
+                        color:var(--doux);margin-left:auto}
+
   dialog{border:none;border-radius:20px;background:var(--carte);color:var(--txt);
          padding:22px;width:min(360px,92vw);border:1px solid var(--bord);
          box-shadow:0 24px 60px rgba(0,0,0,.6);
@@ -582,6 +622,9 @@
     .ligne .del{opacity:0;transition:opacity .13s var(--sortie)}
     .ligne:hover .del,.ligne .del:focus-visible{opacity:1}
     .ligne .del:hover{color:var(--danger)}
+    .ligne .pin{opacity:0;transition:opacity .13s var(--sortie)}
+    .ligne:hover .pin,.ligne .pin:focus-visible{opacity:.9}
+    .ligne .ok:hover{filter:brightness(1.2)}
   }
 </style>
 </head>
@@ -633,9 +676,24 @@
     <button data-g="100">100</button><button data-g="150">150</button>
     <button data-g="200">200</button>
   </div>
+  <!-- « Proposer chaque jour » : le plat sera pré-posé en grisé à ce repas
+       tous les jours, à valider d'un tap. Décoché par défaut — c'est l'exception,
+       pas la règle, et une case cochée par erreur fait revenir un plat fantôme. -->
+  <label class="recToggle"><input type="checkbox" id="dRec">
+    <span>Proposer chaque jour à ce repas (à valider)</span></label>
   <div class="actions">
     <button class="sec" id="annuler">Annuler</button>
     <button class="prim" id="valider">Ajouter</button>
+  </div>
+</dialog>
+
+<dialog id="dlgRec">
+  <div class="nom" style="margin-bottom:3px">Plats récurrents</div>
+  <div class="meta" style="margin-bottom:14px">Proposés chaque jour en grisé, comptés
+    seulement une fois validés. Le grammage vaut pour les prochains jours.</div>
+  <div id="recListe" style="max-height:52vh;overflow:auto"></div>
+  <div class="actions" style="margin-top:16px">
+    <button class="sec" id="recFermer">Fermer</button>
   </div>
 </dialog>
 
@@ -670,7 +728,7 @@
   <div class="meta" style="margin-bottom:14px">Il sera ajouté à aujourd'hui.</div>
   <div id="repListe" style="max-height:52vh;overflow:auto"></div>
   <div class="actions" style="margin-top:16px">
-    <button id="repFermer">Fermer</button>
+    <button class="sec" id="repFermer">Fermer</button>
   </div>
 </dialog>
 
@@ -679,7 +737,7 @@
   <div class="meta" id="protReste" style="margin-bottom:14px"></div>
   <div id="protListe" style="max-height:52vh;overflow:auto"></div>
   <div class="actions" style="margin-top:16px">
-    <button id="protFermer">Fermer</button>
+    <button class="sec" id="protFermer">Fermer</button>
   </div>
 </dialog>
 
@@ -840,6 +898,7 @@ function ouvre(r){
   // JB prend ses galettes de riz par 8 g et jamais par 100 : la valeur par
   // défaut était fausse à chaque fois pour ce qu'il saisit le plus souvent.
   $('#g').value = r.dernier_grammage || 100;
+  $('#dRec').checked = false;
   // Le repas est présélectionné d'après l'heure : dans l'immense majorité des
   // cas il n'y a rien à toucher. C'est une suggestion, pas une contrainte.
   repasChoisi = suggestion;
@@ -878,6 +937,15 @@ $('#valider').onclick = async () => {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({...choix, grammes: g, repas: repasChoisi})});
     if(!r.ok) throw new Error(await r.text());
+    // Récurrent créé DEPUIS la ligne qui vient d'être écrite (journal_id) et
+    // non depuis la fiche : le serveur marque alors aujourd'hui comme validé,
+    // sinon le plat tout juste ajouté réapparaîtrait en grisé dans la seconde.
+    if($('#dRec').checked){
+      const {id} = await r.json();
+      if(id) await fetch('/api/recurrents', {method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({journal_id: id, repas: repasChoisi})});
+    }
     $('#dlg').close();
     $('#q').value = ''; $('#res').innerHTML = ''; etat('');
     jourVu = isoLocal();
@@ -988,7 +1056,7 @@ async function chargeJour(){
   $('#duoJour').innerHTML = dd && dd.total
     ? `<div><div class="quoi">Mangé</div>`
       + `<div class="val">${Math.round(d.total.energie_kcal)}<span style="font-size:12px;font-weight:400"> kcal</span></div>`
-      + `<div class="det">${d.groupes.length} repas · P ${nb(d.total.proteines)} g</div></div>`
+      + `<div class="det">${d.groupes.filter(g => g.lignes.length).length} repas · P ${nb(d.total.proteines)} g</div></div>`
       + `<div><div class="quoi">Dépensé</div>`
       + `<div class="val">${Math.round(dd.total)}<span style="font-size:12px;font-weight:400"> kcal</span></div>`
       + `<div class="det" style="font-size:11px;color:var(--faible)">`
@@ -1011,7 +1079,22 @@ async function chargeJour(){
               <div><b>${esc(l.nom)}</b>
                 <div class="meta">${l.grammes} g · ${Math.round(l.energie_kcal||0)} kcal
                 · ${l.horodatage.slice(11,16)}</div></div>
-              <button class="del" data-id="${l.id}" aria-label="Supprimer">×</button>
+              <div class="act">
+                <button class="pin" data-pin="${l.id}" title="Proposer chaque jour à ce repas"
+                        aria-label="Marquer comme plat récurrent">📌</button>
+                <button class="del" data-id="${l.id}" aria-label="Supprimer">×</button>
+              </div>
+            </div>`).join('')}
+          ${(g.en_attente || []).map(p => `
+            <div class="ligne attente">
+              <div><b>${esc(p.nom)}</b><span class="tag att">en attente</span>
+                <div class="meta">${p.grammes} g · ${Math.round(p.energie_kcal||0)} kcal
+                · non compté</div></div>
+              <div class="act">
+                <button class="ok" data-val="${p.recurrent_id}">Valider</button>
+                <button class="del" data-rej="${p.recurrent_id}" data-nom="${esc(p.nom)}"
+                        aria-label="Pas ce jour-là">×</button>
+              </div>
             </div>`).join('')}
         </div>`).join('')
     : `<div class="vide">${d.jour === AUJOURDHUI()
@@ -1025,6 +1108,38 @@ async function chargeJour(){
     chargeJour();
     if(ligne) proposeAnnulation(ligne);
   });
+
+  // ── Récurrents : valider / écarter une proposition, épingler une ligne ──
+  // La décision porte sur le jour AFFICHÉ, pas sur aujourd'hui : on peut
+  // valider après coup le déjeuner d'hier qu'on a oublié de confirmer.
+  $('#lignes').querySelectorAll('[data-val]').forEach(b => b.onclick = async () => {
+    b.disabled = true; b.textContent = '…';
+    await fetch(`/api/recurrents/${b.dataset.val}/valider`, {method:'POST',
+      headers:{'Content-Type':'application/json'}, body: JSON.stringify({jour: jourVu})});
+    chargeJour();
+  });
+  $('#lignes').querySelectorAll('[data-rej]').forEach(b => b.onclick = async () => {
+    const rid = b.dataset.rej, jour = jourVu;
+    await fetch(`/api/recurrents/${rid}/rejeter`, {method:'POST',
+      headers:{'Content-Type':'application/json'}, body: JSON.stringify({jour})});
+    chargeJour();
+    // Même bandeau que la suppression d'une ligne : un « × » raté ne doit pas
+    // coûter plus cher ici qu'ailleurs. Annuler efface le rejet, la proposition
+    // revient en grisé.
+    proposeAnnulation({nom: b.dataset.nom, _rec: {rid, jour}}, 'écarté');
+  });
+  $('#lignes').querySelectorAll('[data-pin]').forEach(b => b.onclick = async () => {
+    const l = d.lignes.find(x => String(x.id) === b.dataset.pin);
+    if(!l) return;
+    const lib = (REPAS.find(([c]) => c === l.repas) || [, l.repas])[1];
+    if(!confirm(`Proposer « ${l.nom} » (${l.grammes} g) chaque jour au repas ${lib} ?\n\n`
+              + `Il apparaîtra en grisé, à valider d'un tap. Ce jour-ci est déjà compté.`)) return;
+    const r = await fetch('/api/recurrents', {method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({journal_id: l.id})});
+    if(!r.ok) alert('Échec : ' + await r.text());
+    chargeJour();
+  });
 }
 
 // ── Annulation d'une suppression ──────────────────────────────────────────
@@ -1037,7 +1152,7 @@ async function chargeJour(){
 // Six secondes : assez pour voir le total bouger et comprendre qu'on s'est
 // trompé, assez court pour ne pas rester en travers de l'écran.
 let minuteurAnnul = null;
-function proposeAnnulation(ligne){
+function proposeAnnulation(ligne, verbe = 'supprimé'){
   clearTimeout(minuteurAnnul);
   document.querySelector('.annul')?.remove();
   const el = document.createElement('div');
@@ -1045,10 +1160,15 @@ function proposeAnnulation(ligne){
   // Posé juste au-dessus de la barre du bas, hauteur mesurée et non devinée.
   el.style.bottom = 'calc(20px + env(safe-area-inset-bottom))';
   el.style.right = '92px';   // laisse le FAB dégagé
-  el.innerHTML = `<span>« ${esc(ligne.nom.slice(0, 26))} » supprimé</span>`
+  el.innerHTML = `<span>« ${esc(ligne.nom.slice(0, 26))} » ${verbe}</span>`
                + `<button>Annuler</button>`;
   el.querySelector('button').onclick = async () => {
     clearTimeout(minuteurAnnul); el.remove();
+    // Rejet d'un récurrent : on efface la décision du jour, rien à restaurer.
+    if(ligne._rec){
+      await fetch(`/api/recurrents/${ligne._rec.rid}/jour/${ligne._rec.jour}`, {method:'DELETE'});
+      chargeJour(); return;
+    }
     // Endpoint DÉDIÉ, pas POST /api/journal : celui-ci attend des valeurs pour
     // 100 g et force la date du jour. Y renvoyer une ligne de journal telle
     // quelle multiplierait les valeurs par le grammage ET recréerait l'aliment
@@ -1102,10 +1222,57 @@ function dessineRapide(){
       `<button id="bRep">↻ Repas passé</button>`
     + (resteProt > 0
         ? `<button id="bProt" class="fort">🥩 Protéines −${Math.round(resteProt)} g</button>`
-        : '');
+        : '')
+    + `<button id="bRec">📌 Récurrents</button>`;
   $('#bRep').onclick = ouvreRepetition;
   const bp = $('#bProt'); if(bp) bp.onclick = ouvreProteines;
+  $('#bRec').onclick = ouvreRecurrents;
 }
+
+// ── Plats récurrents : gestion (grammage, pause, reprise) ─────────────────
+// On n'ajoute PAS de récurrent depuis ici : ça passe par le 📌 d'une ligne du
+// journal ou la case de la fiche de grammage — là où le plat et sa portion
+// sont déjà sous les yeux. Une deuxième recherche ici ferait doublon.
+async function ouvreRecurrents(){
+  const d = await (await fetch('/api/recurrents?tous=true')).json();
+  const lib = c => (REPAS.find(([k]) => k === c) || [, c])[1];
+  const stat = {en_attente: 'en attente', valide: 'validé aujourd’hui', rejete: 'écarté aujourd’hui'};
+  $('#recListe').innerHTML = d.recurrents.length ? d.recurrents.map(r => `
+    <li class="recItem ${r.actif ? '' : 'off'}" data-id="${r.id}">
+      <div class="nom">${esc(r.nom)}<span class="tag">${lib(r.repas)}</span>
+        ${r.actif && r.statut_jour ? `<span class="tag ${r.statut_jour === 'en_attente' ? 'att' : ''}">${stat[r.statut_jour]}</span>` : ''}
+        ${r.actif ? '' : '<span class="tag">en pause</span>'}</div>
+      <div class="meta">${Math.round(r.portion.energie_kcal)} kcal · P ${nb(r.portion.proteines)} g
+        pour ${r.grammes} g</div>
+      <div class="rang">
+        <input type="number" inputmode="decimal" min="1" step="1" value="${r.grammes}"
+               data-g="${r.id}" aria-label="Grammes"><span class="meta" style="margin:0">g</span>
+        <button data-tog="${r.id}" data-on="${r.actif}">${r.actif ? 'Mettre en pause' : 'Reprendre'}</button>
+      </div>
+    </li>`).join('')
+    : `<div class="vide">Aucun plat récurrent.<br><br>Pour en créer un : 📌 sur une ligne
+       du journal, ou la case « Proposer chaque jour » dans la fiche d’ajout.</div>`;
+  $('#recListe').querySelectorAll('[data-g]').forEach(i => i.onchange = async () => {
+    const g = parseFloat(i.value);
+    if(!(g > 0)){ i.value = d.recurrents.find(r => r.id === +i.dataset.g).grammes; return; }
+    await fetch('/api/recurrents/' + i.dataset.g, {method:'PATCH',
+      headers:{'Content-Type':'application/json'}, body: JSON.stringify({grammes: g})});
+    ouvreRecurrents(); chargeJour();
+  });
+  $('#recListe').querySelectorAll('[data-tog]').forEach(b => b.onclick = async () => {
+    await fetch('/api/recurrents/' + b.dataset.tog, {method:'PATCH',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({actif: b.dataset.on !== '1'})});
+    ouvreRecurrents(); chargeJour();
+  });
+  if(!$('#dlgRec').open){
+    $('#dlgRec').showModal();
+    // showModal() pose le focus sur le premier champ, donc sur un grammage :
+    // sur téléphone ça ouvre le clavier avant qu'on ait rien demandé.
+    document.activeElement?.blur();
+  }
+}
+$('#recFermer').onclick = () => $('#dlgRec').close();
 
 async function ouvreRepetition(){
   const d = await (await fetch('/api/repas-recents?limite=10')).json();

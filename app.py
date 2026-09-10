@@ -104,6 +104,39 @@ def init() -> None:
                 glucides real, sucres real,
                 lipides real, fibres real, sel real
             );
+
+            -- Repas récurrents : « je mange la même chose tous les midis ».
+            -- Le plat de RÉFÉRENCE vit ici, jamais dans le journal : une
+            -- proposition n'est pas une saisie, et la compter avant que JB ait
+            -- dit « oui » gonflerait l'apport d'un repas peut-être sauté.
+            -- Les valeurs pour 100 g sont un instantané : pour CIQUAL et les
+            -- aliments maison on relit la source au moment de valider (une
+            -- correction de la fiche suit), l'instantané ne sert qu'en secours
+            -- et pour Open Food Facts (pas d'appel réseau depuis le journal).
+            create table if not exists repas_recurrents (
+                id integer primary key autoincrement,
+                source text not null,
+                ref text,
+                nom text not null,
+                grammes real not null,
+                repas text not null default 'midi',
+                actif integer not null default 1,
+                cree text not null,
+                energie_kcal real, energie_calculee integer default 0,
+                proteines real, glucides real, sucres real,
+                lipides real, fibres real, sel real
+            );
+            -- Une décision par jour et par plat : validé (→ ligne du journal)
+            -- ou rejeté. La clé composite est ce qui garantit qu'un plat n'est
+            -- jamais compté deux fois ni re-proposé une fois tranché.
+            create table if not exists recurrents_jours (
+                recurrent_id integer not null references repas_recurrents(id),
+                jour text not null,
+                statut text not null,          -- 'valide' | 'rejete'
+                journal_id integer,
+                decide text not null,
+                primary key (recurrent_id, jour)
+            );
         """)
         c.commit()
 
@@ -117,6 +150,80 @@ def startup():
 def root() -> str:
     """Interface mobile : vue jour, entrée, recherche, favoris."""
     return (BASE / "index.html").read_text(encoding="utf-8")
+
+
+LIBELLES = {"matin": "Matin", "midi": "Midi", "gouter": "Goûter", "soir": "Soir"}
+# Heure posée sur une validation faite APRÈS COUP (un jour passé) : le journal
+# exige un horodatage et « 12h30 » est plus honnête qu'un now() qui daterait un
+# déjeuner de la veille à 22h.
+HEURE_REPAS = {"matin": "08:00", "midi": "12:30", "gouter": "16:30", "soir": "19:30"}
+CHAMPS = ("energie_kcal", "proteines", "glucides", "sucres", "lipides", "fibres", "sel")
+
+
+def _valeurs_100g(rec: sqlite3.Row | dict) -> dict:
+    """Valeurs pour 100 g d'un plat de référence, relues à la source quand
+    elle est locale. Si la fiche maison ou CIQUAL a été corrigée depuis, la
+    proposition suit — c'est ce que JB attend (« si les valeurs du plat de
+    référence changent, les jours suivants suivent »)."""
+    snap = {k: (rec[k] or 0) for k in CHAMPS}
+    snap["energie_calculee"] = rec["energie_calculee"] or 0
+    source, ref, nom = rec["source"], rec["ref"], rec["nom"]
+    try:
+        with db() as c:
+            if source == "manuel":
+                row = c.execute("""select energie_kcal, proteines, glucides, sucres,
+                                          lipides, fibres, sel
+                                   from aliments_manuels where nom = ?""",
+                                (ref or nom,)).fetchone()
+                if row:
+                    return {**{k: (row[k] or 0) for k in CHAMPS}, "energie_calculee": 0}
+            elif source == "ciqual" and ref:
+                row = c.execute("""select energie_kcal, proteines, glucides, sucres,
+                                          lipides, fibres, sel, energie_calculee
+                                   from ciqual where code = ?""", (ref,)).fetchone()
+                if row:
+                    return {**{k: (row[k] or 0) for k in CHAMPS},
+                            "energie_calculee": row["energie_calculee"] or 0}
+    except Exception:
+        pass
+    return snap
+
+
+def _portion(rec: sqlite3.Row | dict, grammes: float) -> dict:
+    v = _valeurs_100g(rec)
+    out = {k: round(v[k] * grammes / 100, 1) for k in CHAMPS}
+    out["energie_calculee"] = v["energie_calculee"]
+    return out
+
+
+def _en_attente(c: sqlite3.Connection, jour: str) -> list[dict]:
+    """Propositions non tranchées pour un jour : récurrents actifs, créés au
+    plus tard ce jour-là, sans décision enregistrée. Jamais pour un jour
+    futur — on ne valide pas un déjeuner qu'on n'a pas encore mangé."""
+    if jour > date.today().isoformat():
+        return []
+    rows = c.execute("""
+        select r.* from repas_recurrents r
+        where r.actif = 1 and substr(r.cree, 1, 10) <= ?
+          and not exists (select 1 from recurrents_jours j
+                          where j.recurrent_id = r.id and j.jour = ?)
+        order by r.repas, r.nom
+    """, (jour, jour)).fetchall()
+    out = []
+    for r in rows:
+        p = _portion(r, r["grammes"])
+        out.append({
+            "recurrent_id": r["id"], "jour": jour, "repas": r["repas"],
+            "libelle": LIBELLES.get(r["repas"], r["repas"]),
+            "source": r["source"], "ref": r["ref"], "nom": r["nom"],
+            "grammes": r["grammes"], "en_attente": True, **p,
+        })
+    return out
+
+
+def _decision(c: sqlite3.Connection, rid: int, jour: str) -> sqlite3.Row | None:
+    return c.execute("select * from recurrents_jours where recurrent_id = ? and jour = ?",
+                     (rid, jour)).fetchone()
 
 
 @app.get("/api/jour")
@@ -187,10 +294,12 @@ def jour_data(d: str | None = None) -> dict:
                     "horodatage": l["horodatage"],
                 })
             groupes.append({
-                "libelle": {"matin": "Matin", "midi": "Midi", "gouter": "Goûter", "soir": "Soir"}.get(g["repas"], g["repas"]),
+                "libelle": LIBELLES.get(g["repas"], g["repas"]),
+                "repas": g["repas"],
                 "kcal": round(g["kcal"] or 0),
                 "proteines": round(g["proteines"] or 0),
                 "lignes": lignes,
+                "en_attente": [],
             })
 
         # Toutes les lignes pour undo
@@ -202,6 +311,19 @@ def jour_data(d: str | None = None) -> dict:
             ORDER BY horodatage DESC
         """, (target_jour,))
         lignes = [dict(row) for row in cur.fetchall()]
+
+        # Repas récurrents en attente de validation. Rattachés au groupe de leur
+        # repas (créé s'il n'existe pas encore) mais PAS additionnés : ni dans
+        # `total`, ni dans le `kcal` du groupe. Le total du jour reste la somme
+        # de la table journal, et rien d'autre.
+        en_attente = _en_attente(c, target_jour)
+        for p in en_attente:
+            g = next((g for g in groupes if g.get("repas") == p["repas"]), None)
+            if g is None:
+                g = {"libelle": p["libelle"], "repas": p["repas"],
+                     "kcal": 0, "proteines": 0, "lignes": [], "en_attente": []}
+                groupes.append(g)
+            g.setdefault("en_attente", []).append(p)
 
     # Dépense Garmin
     depense = None
@@ -265,6 +387,7 @@ def jour_data(d: str | None = None) -> dict:
         },
         "groupes": groupes,
         "lignes": lignes,
+        "en_attente": en_attente,
         "premier_jour": premier_jour,
         "dernier_jour": dernier_jour,
         "objectifs": objectifs,
@@ -390,12 +513,12 @@ def ajouter_au_journal(item: dict) -> dict:
             """, (nom,))
             row = cur.fetchone()
             if row:
-                energie_kcal = row["energie_kcal"] * grammes / 100
-                proteines = row["proteines"] * grammes / 100
-                glucides = row["glucides"] * grammes / 100
-                sucres = row["sucres"] * grammes / 100
-                lipides = row["lipides"] * grammes / 100
-                fibres = row["fibres"] * grammes / 100
+                energie_kcal = (row["energie_kcal"] or 0) * grammes / 100
+                proteines = (row["proteines"] or 0) * grammes / 100
+                glucides = (row["glucides"] or 0) * grammes / 100
+                sucres = (row["sucres"] or 0) * grammes / 100
+                lipides = (row["lipides"] or 0) * grammes / 100
+                fibres = (row["fibres"] or 0) * grammes / 100
     elif source == "ciqual":
         # Depuis CIQUAL
         try:
@@ -409,22 +532,28 @@ def ajouter_au_journal(item: dict) -> dict:
                 """, (ref,))
                 row = cur.fetchone()
                 if row:
-                    energie_kcal = row["energie_kcal"] * grammes / 100
-                    proteines = row["proteines"] * grammes / 100
-                    glucides = row["glucides"] * grammes / 100
-                    sucres = row["sucres"] * grammes / 100
-                    lipides = row["lipides"] * grammes / 100
-                    fibres = row["fibres"] * grammes / 100
+                    energie_kcal = (row["energie_kcal"] or 0) * grammes / 100
+                    proteines = (row["proteines"] or 0) * grammes / 100
+                    glucides = (row["glucides"] or 0) * grammes / 100
+                    sucres = (row["sucres"] or 0) * grammes / 100
+                    lipides = (row["lipides"] or 0) * grammes / 100
+                    fibres = (row["fibres"] or 0) * grammes / 100
         except Exception:
             pass
     elif source == "off":
         # Depuis Open Food Facts
-        energie_kcal = item.get("energie_kcal", 0) * grammes / 100
-        proteines = item.get("proteines", 0) * grammes / 100
-        glucides = item.get("glucides", 0) * grammes / 100
-        sucres = item.get("sucres", 0) * grammes / 100
-        lipides = item.get("lipides", 0) * grammes / 100
-        fibres = item.get("fibres", 0) * grammes / 100
+        # ⚠️ `.get(k, 0)` ne suffit PAS : le défaut ne s'applique que si la clé
+        # est ABSENTE. Open Food Facts envoie la clé avec `null` pour un champ
+        # qu'il ne connaît pas (la whey isolate n'a pas de fibres déclarées), et
+        # `None * grammes` lève un TypeError → 500 à l'enregistrement, vu le
+        # 2026-09-09. Le `or 0` traite absent et nul de la même façon — c'est
+        # l'idiome déjà utilisé par `_valeurs_100g` plus haut.
+        energie_kcal = (item.get("energie_kcal") or 0) * grammes / 100
+        proteines = (item.get("proteines") or 0) * grammes / 100
+        glucides = (item.get("glucides") or 0) * grammes / 100
+        sucres = (item.get("sucres") or 0) * grammes / 100
+        lipides = (item.get("lipides") or 0) * grammes / 100
+        fibres = (item.get("fibres") or 0) * grammes / 100
 
     # Enregistrer dans le journal
     with db() as c:
@@ -436,6 +565,7 @@ def ajouter_au_journal(item: dict) -> dict:
         """, (today, now, repas, source, ref, nom, grammes,
             round(energie_kcal, 1), round(proteines, 1), round(glucides, 1),
             round(sucres, 1), round(lipides, 1), round(fibres, 1)))
+        nouvel_id = cur.lastrowid
         c.commit()
 
     # Mettre à jour les favoris
@@ -451,7 +581,8 @@ def ajouter_au_journal(item: dict) -> dict:
             """, (source, ref, nom, now, nom, now))
             c.commit()
 
-    return {"ok": True}
+    # L'id sert au front à épingler la ligne comme récurrent dans la foulée.
+    return {"ok": True, "id": nouvel_id}
 
 
 @app.delete("/api/journal/{id}")
@@ -459,6 +590,12 @@ def supprimer_du_journal(id: int) -> dict:
     """Supprime une entrée du journal."""
     with db() as c:
         c.execute("DELETE FROM journal WHERE id = ?", (id,))
+        # Si la ligne venait d'un récurrent validé, la supprimer veut dire
+        # « finalement non » : on passe en rejeté plutôt que d'effacer la
+        # décision, sinon le plat reviendrait en grisé dans la seconde.
+        c.execute("""update recurrents_jours set statut = 'rejete', decide = ?
+                     where journal_id = ? and statut = 'valide'""",
+                  (datetime.now().isoformat(), id))
         c.commit()
     return {"ok": True}
 
@@ -476,6 +613,11 @@ def restaurer_du_journal(ligne: dict) -> dict:
               ligne["source"], ligne["ref"], ligne["nom"], ligne["grammes"],
               ligne["energie_kcal"], ligne["proteines"], ligne["glucides"],
               ligne["lipides"], ligne["fibres"]))
+        # Miroir de la suppression : « Annuler » sur une ligne issue d'un
+        # récurrent la remet en validé — l'id est conservé, le lien tient.
+        c.execute("""update recurrents_jours set statut = 'valide', decide = ?
+                     where journal_id = ? and statut = 'rejete'""",
+                  (datetime.now().isoformat(), ligne["id"]))
         c.commit()
     return {"ok": True}
 
@@ -660,6 +802,230 @@ def supprimer_aliment_manuel(nom: str) -> dict:
         c.execute("DELETE FROM aliments_manuels WHERE nom = ?", (nom,))
         c.commit()
     return {"ok": True}
+
+
+# ── Repas récurrents ─────────────────────────────────────────────────────
+#
+# JB mange souvent le même plat le midi. Plutôt que de le ressaisir, le plat est
+# proposé chaque jour en grisé et il ne reste qu'à dire oui ou non. Le « oui »
+# crée une vraie ligne de journal ; le « non » ne crée rien, mais s'inscrit
+# quand même — c'est ce qui empêche la proposition de revenir le même jour.
+
+def _rec_dict(r: sqlite3.Row, jour: str | None = None, c: sqlite3.Connection | None = None) -> dict:
+    d = dict(r)
+    d["portion"] = _portion(r, r["grammes"])
+    if jour and c is not None:
+        dec = _decision(c, r["id"], jour)
+        d["statut_jour"] = dec["statut"] if dec else ("en_attente" if r["actif"] else None)
+    return d
+
+
+@app.get("/api/recurrents")
+def lister_recurrents(tous: bool = False, d: str | None = None) -> dict:
+    """Récurrents actifs (ou tous), avec leur statut pour le jour demandé."""
+    jour = d or date.today().isoformat()
+    with db() as c:
+        rows = c.execute(
+            "select * from repas_recurrents" + ("" if tous else " where actif = 1")
+            + " order by actif desc, repas, nom").fetchall()
+        return {"recurrents": [_rec_dict(r, jour, c) for r in rows], "jour": jour}
+
+
+@app.post("/api/recurrents")
+def creer_recurrent(item: dict) -> dict:
+    """Marque un plat comme récurrent. Deux entrées possibles :
+    · `journal_id` — depuis une ligne existante du journal (valeurs ramenées
+      à 100 g depuis la ligne) ;
+    · `source`/`ref`/`nom`/`grammes` + valeurs pour 100 g — depuis une fiche.
+    Même plat (source, ref/nom) au même repas ⇒ on réactive et on met à jour
+    le grammage au lieu de dupliquer."""
+    now = datetime.now().isoformat()
+    repas = item.get("repas") or "midi"
+    if repas not in LIBELLES:
+        raise HTTPException(400, "repas inconnu")
+
+    with db() as c:
+        if item.get("journal_id") is not None:
+            l = c.execute("select * from journal where id = ?", (item["journal_id"],)).fetchone()
+            if not l:
+                raise HTTPException(404, "ligne de journal introuvable")
+            g = l["grammes"] or 0
+            if g <= 0:
+                raise HTTPException(400, "grammage nul")
+            base = {"source": l["source"], "ref": l["ref"], "nom": l["nom"],
+                    "grammes": item.get("grammes") or g,
+                    "energie_calculee": l["energie_calculee"] or 0}
+            for k in CHAMPS:
+                base[k] = round((l[k] or 0) * 100 / g, 2)
+            repas = item.get("repas") or l["repas"] or "midi"
+        else:
+            if not item.get("nom") or not item.get("grammes"):
+                raise HTTPException(400, "nom et grammes requis")
+            base = {"source": item.get("source") or "manuel", "ref": item.get("ref"),
+                    "nom": item["nom"], "grammes": float(item["grammes"]),
+                    "energie_calculee": item.get("energie_calculee") or 0}
+            for k in CHAMPS:
+                base[k] = item.get(k) or 0
+        if base["grammes"] <= 0:
+            raise HTTPException(400, "grammage nul")
+
+        # Un aliment maison a souvent ref NULL dans le journal : la clé de
+        # dédoublonnage retombe alors sur le nom.
+        cle = base["ref"] or base["nom"]
+        exist = c.execute("""select id from repas_recurrents
+                             where source = ? and coalesce(ref, nom) = ? and repas = ?""",
+                          (base["source"], cle, repas)).fetchone()
+        if exist:
+            c.execute("""update repas_recurrents set actif = 1, grammes = ?, nom = ?,
+                         energie_kcal = ?, energie_calculee = ?, proteines = ?, glucides = ?,
+                         sucres = ?, lipides = ?, fibres = ?, sel = ? where id = ?""",
+                      (base["grammes"], base["nom"], base["energie_kcal"],
+                       base["energie_calculee"], base["proteines"], base["glucides"],
+                       base["sucres"], base["lipides"], base["fibres"], base["sel"],
+                       exist["id"]))
+            rid = exist["id"]
+        else:
+            cur = c.execute("""insert into repas_recurrents
+                (source, ref, nom, grammes, repas, actif, cree, energie_kcal,
+                 energie_calculee, proteines, glucides, sucres, lipides, fibres, sel)
+                values (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (base["source"], base["ref"], base["nom"], base["grammes"], repas, now,
+                 base["energie_kcal"], base["energie_calculee"], base["proteines"],
+                 base["glucides"], base["sucres"], base["lipides"], base["fibres"],
+                 base["sel"]))
+            rid = cur.lastrowid
+        # Créé depuis une ligne du journal du jour : ce jour-là est déjà mangé,
+        # on le marque validé pour ne pas proposer en double ce qui est saisi.
+        if item.get("journal_id") is not None and l["jour"] <= date.today().isoformat():
+            c.execute("""insert or ignore into recurrents_jours
+                         (recurrent_id, jour, statut, journal_id, decide)
+                         values (?, ?, 'valide', ?, ?)""", (rid, l["jour"], l["id"], now))
+        c.commit()
+        r = c.execute("select * from repas_recurrents where id = ?", (rid,)).fetchone()
+        return {"ok": True, "recurrent": _rec_dict(r, date.today().isoformat(), c),
+                "reactive": bool(exist)}
+
+
+@app.patch("/api/recurrents/{rid}")
+def modifier_recurrent(rid: int, item: dict) -> dict:
+    """Grammage, repas, actif. Le grammage modifié vaut pour les propositions
+    à venir — celles déjà validées sont des lignes de journal, on n'y touche pas."""
+    champs, vals = [], []
+    if "grammes" in item:
+        g = float(item["grammes"])
+        if g <= 0:
+            raise HTTPException(400, "grammage nul")
+        champs.append("grammes = ?"); vals.append(g)
+    if "repas" in item:
+        if item["repas"] not in LIBELLES:
+            raise HTTPException(400, "repas inconnu")
+        champs.append("repas = ?"); vals.append(item["repas"])
+    if "actif" in item:
+        champs.append("actif = ?"); vals.append(1 if item["actif"] else 0)
+    if not champs:
+        raise HTTPException(400, "rien à modifier")
+    with db() as c:
+        if not c.execute("select 1 from repas_recurrents where id = ?", (rid,)).fetchone():
+            raise HTTPException(404, "récurrent introuvable")
+        c.execute(f"update repas_recurrents set {', '.join(champs)} where id = ?", (*vals, rid))
+        c.commit()
+        r = c.execute("select * from repas_recurrents where id = ?", (rid,)).fetchone()
+        return {"ok": True, "recurrent": _rec_dict(r, date.today().isoformat(), c)}
+
+
+@app.delete("/api/recurrents/{rid}")
+def desactiver_recurrent(rid: int) -> dict:
+    """Désactive (ne supprime pas) : l'historique des décisions reste lisible,
+    et réactiver plus tard ne repart pas de zéro."""
+    with db() as c:
+        cur = c.execute("update repas_recurrents set actif = 0 where id = ?", (rid,))
+        c.commit()
+        if cur.rowcount == 0:
+            raise HTTPException(404, "récurrent introuvable")
+    return {"ok": True}
+
+
+def _jour_cible(item: dict) -> str:
+    jour = item.get("jour") or date.today().isoformat()
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", jour) or jour > date.today().isoformat():
+        raise HTTPException(400, "jour invalide ou futur")
+    return jour
+
+
+@app.post("/api/recurrents/{rid}/valider")
+def valider_recurrent(rid: int, item: dict | None = None) -> dict:
+    """La proposition devient une ligne du journal, comptée normalement.
+    Idempotent : déjà tranché ce jour-là ⇒ on renvoie l'état, on n'insère rien."""
+    item = item or {}
+    jour = _jour_cible(item)
+    now = datetime.now().isoformat()
+    with db() as c:
+        r = c.execute("select * from repas_recurrents where id = ?", (rid,)).fetchone()
+        if not r:
+            raise HTTPException(404, "récurrent introuvable")
+        dec = _decision(c, rid, jour)
+        if dec:
+            return {"ok": True, "statut": dec["statut"], "journal_id": dec["journal_id"],
+                    "deja": True}
+        grammes = float(item.get("grammes") or r["grammes"])
+        if grammes <= 0:
+            raise HTTPException(400, "grammage nul")
+        p = _portion(r, grammes)
+        horodatage = now if jour == date.today().isoformat() \
+            else f"{jour}T{HEURE_REPAS.get(r['repas'], '12:30')}:00"
+        cur = c.execute("""
+            INSERT INTO journal
+            (jour, horodatage, repas, source, ref, nom, grammes,
+             energie_kcal, energie_calculee, proteines, glucides, sucres, lipides, fibres, sel)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (jour, horodatage, r["repas"], r["source"], r["ref"], r["nom"], grammes,
+              p["energie_kcal"], p["energie_calculee"], p["proteines"], p["glucides"],
+              p["sucres"], p["lipides"], p["fibres"], p["sel"]))
+        jid = cur.lastrowid
+        c.execute("""insert into recurrents_jours (recurrent_id, jour, statut, journal_id, decide)
+                     values (?, ?, 'valide', ?, ?)""", (rid, jour, jid, now))
+        if r["source"] and r["ref"]:
+            c.execute("""
+                INSERT INTO favoris (source, ref, nom, usages, dernier)
+                VALUES (?, ?, ?, 1, ?)
+                ON CONFLICT (source, ref) DO UPDATE SET
+                    usages = usages + 1, nom = ?, dernier = ?
+            """, (r["source"], r["ref"], r["nom"], now, r["nom"], now))
+        c.commit()
+    return {"ok": True, "statut": "valide", "journal_id": jid, "deja": False}
+
+
+@app.post("/api/recurrents/{rid}/rejeter")
+def rejeter_recurrent(rid: int, item: dict | None = None) -> dict:
+    """« Pas aujourd'hui » : rien au journal, mais la décision est notée pour
+    que la proposition ne revienne pas ce jour-là."""
+    jour = _jour_cible(item or {})
+    with db() as c:
+        if not c.execute("select 1 from repas_recurrents where id = ?", (rid,)).fetchone():
+            raise HTTPException(404, "récurrent introuvable")
+        dec = _decision(c, rid, jour)
+        if dec:
+            return {"ok": True, "statut": dec["statut"], "deja": True}
+        c.execute("""insert into recurrents_jours (recurrent_id, jour, statut, journal_id, decide)
+                     values (?, ?, 'rejete', NULL, ?)""", (rid, jour, datetime.now().isoformat()))
+        c.commit()
+    return {"ok": True, "statut": "rejete", "deja": False}
+
+
+@app.delete("/api/recurrents/{rid}/jour/{jour}")
+def annuler_decision(rid: int, jour: str) -> dict:
+    """Annule un REJET : la proposition réapparaît en attente. Une validation
+    ne s'annule pas ici — sa ligne de journal se supprime comme les autres,
+    et c'est cette suppression qui bascule la décision."""
+    with db() as c:
+        dec = _decision(c, rid, jour)
+        if not dec:
+            return {"ok": True, "deja": True}
+        if dec["statut"] == "valide":
+            raise HTTPException(409, "déjà validé : supprimer la ligne du journal")
+        c.execute("delete from recurrents_jours where recurrent_id = ? and jour = ?", (rid, jour))
+        c.commit()
+    return {"ok": True, "deja": False}
 
 
 if __name__ == "__main__":
