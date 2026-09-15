@@ -6,6 +6,7 @@ nutrition.db*
 .insights.json
 .nutrition-alerte-state.json
 config/nutrition-profil.json
+config/nutrition-auth.json
 logs/
 *.log
 
