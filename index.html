@@ -3,9 +3,39 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0c0f13">
+<meta name="theme-color" content="#12121a">
 <title>Journal</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ctext y=%22.9em%22 font-size=%2290%22%3E%F0%9F%8D%8E%3C/text%3E%3C/svg%3E">
+<script>
+// Base des chemins relatifs = le répertoire de la page. Sur /nutrition (sans
+// slash final) le navigateur prend la page pour un FICHIER et résout
+// `api/jour` contre la racine — les requêtes partiraient chez l'hôte du
+// proxy, pas vers l'app. Tailscale Funnel avale le 307 serveur sans le
+// renvoyer au client, donc la protection serveur ne suffit pas : ce script
+// remplace l'URL par sa forme avec slash AVANT que le moindre fetch parte.
+(function () {
+  var p = location.pathname;
+  if (!p.endsWith('/')) {
+    location.replace(p + '/' + location.search + location.hash);
+    throw new Error('redirect');   // stoppe l'exécution du reste du script
+  }
+})();
+</script>
+<!-- Chemin RELATIF comme tout le reste du frontend : `static/…` se résout
+     contre le répertoire de la page, donc sous /nutrition/ derrière le proxy
+     aussi bien qu'à la racine en local. Un `/static/…` absolu chercherait
+     l'icône à la racine du domaine du proxy — une autre app. -->
+<link rel="icon" type="image/x-icon" href="static/favicon.ico">
+<link rel="icon" type="image/png" sizes="32x32" href="static/favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="static/favicon-16.png">
+<!-- Ajouté à l'écran d'accueil depuis un téléphone, c'est CETTE icône qui
+     est reprise ; sans elle iOS fabrique une vignette de la page.
+     Pointée sur `apple-touch-icon.png` et pas sur `logo-alpha.png` pour deux
+     raisons qui se cumulent : celui-ci est en 612×612 **avec canal alpha**, or
+     iOS n'honore pas la transparence d'une icône d'accueil — il l'aplatit sur
+     du NOIR, ce qui cerne le logo d'un carré sombre — et il la redimensionne
+     lui-même au lieu d'utiliser les 180×180 attendus. `apple-touch-icon.png`
+     est opaque et déjà au bon gabarit. -->
+<link rel="apple-touch-icon" sizes="180x180" href="static/apple-touch-icon.png">
 <style>
   /* ── Jetons ────────────────────────────────────────────────────────────
      Les bordures sont des BLANCS TRANSLUCIDES et non des gris opaques : posées
@@ -14,55 +44,455 @@
      les foncées. C'est ce qui fait qu'un trait a l'air dessiné plutôt que
      collé. */
   :root{
-    --bg:#0c0f13; --surface:#14181e; --carte:#171c23; --carte-h:#1d232b;
+    /* Fonds : une seule teinte, légèrement violacée, déclinée en quatre
+       élévations. Les deux extrémités sont imposées (#12121a le fond de page,
+       #1c1f2b les cartes) ; les deux autres sont interpolées dessus pour que
+       l'empilement monte par paliers réguliers au lieu de sauter. */
+    --bg:#12121a; --surface:#181a24; --carte:#1c1f2b; --carte-h:#242836;
     --bord:rgba(255,255,255,.075); --bord-fort:rgba(255,255,255,.14);
-    --txt:#eef2f7; --doux:#93a0b0; --faible:#6a7684;
-    --accent:#58a6ff; --accent-sourd:rgba(88,166,255,.14);
-    --ok:#3fb950; --warn:#d6a238; --danger:#e0685f;
-    --r-s:10px; --r-m:13px; --r-l:17px;
+    --txt:#eef1f7; --doux:#9aa3b5; --faible:#6e7789;
+    /* Les deux couleurs du logo, et une règle pour ne jamais les confondre.
+       ÉMERAUDE (le contour de la pomme) = ce qui est acquis ou actionnable :
+       boutons, liens, objectif atteint, poids réel.
+       ORANGE (les barres du logo) = ce qui est en cours ou qui alerte.
+       Une jauge naît orange et devient émeraude quand la cible est franchie —
+       c'est ce basculement qui porte l'information, pas la barre elle-même.
+       D'où l'interdiction de les échanger au cas par cas : le jour où un
+       bouton devient orange, la couleur ne veut plus rien dire nulle part. */
+    --accent:#10b981; --accent-clair:#34d399;
+    --accent-sourd:rgba(16,185,129,.14); --accent-bord:rgba(16,185,129,.35);
+    --orange:#f97316; --orange-clair:#fb923c;
+    --orange-sourd:rgba(249,115,22,.12); --orange-bord:rgba(249,115,22,.32);
+    --sur-accent:#04231a;              /* texte posé SUR l'émeraude */
+    --ok:#10b981; --warn:#f97316; --danger:#f0655c;
+    --danger-sourd:rgba(240,101,92,.13); --danger-bord:rgba(240,101,92,.34);
+    /* Rayons revus à la hausse : le « continuous corner » d'iOS 26 n'est pas
+       un arrondi de plus, c'est ce qui fait qu'une surface a l'air taillée
+       dans un bloc plutôt que découpée aux ciseaux. Les surfaces vraiment
+       flottantes (capsules, boutons) vont, elles, jusqu'au 99px. */
+    --r-s:11px; --r-m:14px; --r-l:20px; --r-xl:26px;
+    /* Gouttière et colonne : le SEUL endroit où se règle l'air autour du site.
+       header, onglets et main s'y raccrochent, et les éléments flottants
+       (#fab, .annul) recalculent le même bord avec la formule
+       `max(pad, 50% − largeur/2 + pad)`. Les deux media queries plus bas ne
+       font que rouvrir ces trois valeurs — aucune marge n'est écrite ailleurs. */
+    --pad-x:18px; --pad-y:16px; --largeur:1120px;
     --ombre:0 1px 2px rgba(0,0,0,.4), 0 4px 14px rgba(0,0,0,.28);
     --ombre-haute:0 -1px 0 var(--bord), 0 -12px 34px rgba(0,0,0,.5);
     --sortie:cubic-bezier(.2,.75,.3,1);
+    /* Ressort d'iOS 26 : départ très rapide, arrivée longue et amortie. C'est
+       lui qui donne à une surface l'air d'être POSÉE quelque part plutôt que
+       téléportée. Réservé aux morphings (la pastille qui glisse d'un onglet à
+       l'autre, la capsule qui change de largeur) ; les micro-retours au doigt
+       gardent --sortie, deux fois plus court. */
+    --ressort:cubic-bezier(.32,.72,0,1);
+
+    /* ── VERRE OPTIQUE ────────────────────────────────────────────────
+       Un flou seul ne fait pas du verre, il fait du calque dépoli. Ce qui
+       distingue une lentille, c'est qu'elle RÉFRACTE : la lumière change de
+       direction en la traversant, se concentre sur les bords, et la surface
+       renvoie un reflet spéculaire vers le haut. D'où quatre couches, dont
+       aucune n'est décorative :
+
+         1. --verre-flou   — le fond est flouté ET RESATURÉ. La saturation est
+            le détail qui trahit tout le reste : du vrai verre concentre la
+            couleur, un `blur()` de navigateur la délave. 180 %, comme les
+            matériaux d'Apple.
+         2. --verre-fond   — le dégradé spéculaire (blanc translucide qui meurt
+            à mi-hauteur) posé sur la teinte. C'est le reflet du ciel sur le
+            haut de la surface, et c'est ce qui donne son épaisseur au bloc.
+         3. --verre-liseret — le liseré lumineux : franc en haut, où la lumière
+            entre ; sourd en bas, où elle ressort.
+         4. l'anneau de réfraction (::after des surfaces vitrées) — un SECOND
+            flou, plus contrasté, masqué pour ne garder que les 6 px du bord.
+            C'est la couche qui sépare ce rendu d'un simple `backdrop-filter` :
+            le décor se tord au bord de la surface au lieu d'y être coupé net.
+
+       Le verre est réservé à la COUCHE FLOTTANTE — barre du haut, capsule
+       d'onglets, bouton d'ajout, feuilles, bandeau d'annulation. Jamais le
+       contenu : une carte de repas reste un aplat opaque, sinon le texte se
+       lit sur ce qui défile derrière et plus rien ne tient en place. La règle
+       vaut aussi dans l'autre sens — le jour où tout est en verre, plus rien
+       ne flotte. */
+    --verre-teinte:rgba(30,33,46,.62);
+    --verre-teinte-fort:rgba(22,24,34,.80);
+    --verre-flou:saturate(180%) blur(30px);
+    /* ⚠️ Arrêts en PIXELS et pas en pourcentages, et teinte PLATE. Les deux
+       points sont la même correction, faite le 13/09/2026 après un « le
+       dégradé n'est pas raccord » de JB, vérifié à la mesure : le corps de la
+       barre du haut tombait de 87 à 22 de luminance, la capsule de 90 à 26 —
+       la clarté divisée par 3,5 sur les 40 premiers pour-cent. Du dégradé
+       brillant, pas du verre.
+         · en POURCENTAGE, le voile se met à l'échelle de l'élément : le même
+           jeton fabrique un petit reflet sur une pastille de 28 px et un
+           lavis sur une feuille de 800. Une lentille ne fait pas ça — son
+           reflet a une épaisseur, pas une proportion. En pixels, il meurt en
+           18 px partout, et une grande surface a donc l'air PLUS plate qu'une
+           petite, ce qui est exactement le comportement d'un vrai matériau.
+         · la teinte était elle aussi un dégradé (alpha .62 → .72 vers une
+           couleur plus sombre) et ajoutait sa propre pente sous le voile.
+       Ce qui brille sur iOS 26, c'est l'ARÊTE — le liseré d'un pixel de
+       `--verre-liseret` et l'anneau de réfraction du ::after — pas la face.
+       Ne pas rétablir des arrêts en % ici « pour que ça s'adapte » : c'est
+       précisément ce qui cassait le rendu. */
+    --verre-fond:
+      linear-gradient(180deg,rgba(255,255,255,.10) 0,
+                      rgba(255,255,255,.045) 3px,
+                      rgba(255,255,255,.012) 9px,
+                      rgba(255,255,255,0) 18px),
+      linear-gradient(180deg,var(--verre-teinte),var(--verre-teinte));
+    /* Même correction que ci-dessus, mêmes raisons. Le voile est ici un poil
+       plus discret : ce fond équipe les feuilles et les modales, qui sont de
+       loin les plus hautes surfaces de l'app — c'est là que l'ancien dégradé
+       en pourcentage faisait le plus de dégâts. */
+    --verre-fond-fort:
+      linear-gradient(180deg,rgba(255,255,255,.085) 0,
+                      rgba(255,255,255,.038) 3px,
+                      rgba(255,255,255,.01) 9px,
+                      rgba(255,255,255,0) 18px),
+      linear-gradient(180deg,var(--verre-teinte-fort),var(--verre-teinte-fort));
+    /* Liseré DIRECTIONNEL, et c'est tout le sujet. L'arête haute est franche
+       (c'est par là que la lumière entre), le tour complet est presque muet.
+       Les valeurs d'origine (.28 / .07 / .055) traçaient un contour qui faisait
+       le tour de la forme à intensité constante : mesuré le 13/09/2026, le
+       pourtour de la capsule ressortait à 64 de luminance contre 34 de face, et
+       l'arête haute culminait à 106 — trois fois la face. Ça ne se lit pas
+       comme du verre, ça se lit comme un trait de contour. Un rebord de
+       lentille n'est pas une bordure : il brille là où la lumière l'attaque et
+       s'éteint ailleurs. Baisser les trois valeurs ensemble ne suffirait pas —
+       ce qui compte est l'ÉCART entre le haut et le reste. */
+    --verre-liseret:
+      inset 0 1px 0 rgba(255,255,255,.14),
+      inset 0 0 0 1px rgba(255,255,255,.016),
+      inset 0 -1px 0 rgba(255,255,255,.018);
+    --verre-ombre:0 10px 34px rgba(0,0,0,.5), 0 2px 8px rgba(0,0,0,.34);
+    /* Teinte émeraude du verre ACTIF (pastille d'onglet, bouton d'ajout).
+       Le verre ne devient pas opaque quand il s'allume — il se teinte. */
+    /* Arrêts en pixels ici aussi — c'est la pastille QUI VIT DANS la capsule,
+       elle ne peut pas obéir à une autre logique de reflet que la surface qui
+       la porte, sinon on voit deux matériaux au lieu d'un objet posé dans un
+       autre. La bascule émeraude reste, elle : sur une surface teintée elle se
+       lit comme la couleur qui prend la lumière, pas comme un vernis. Elle est
+       juste resserrée (.92 → .87 sur les 14 premiers pixels) au lieu de courir
+       sur toute la hauteur. */
+    --verre-accent:
+      linear-gradient(180deg,rgba(255,255,255,.20) 0,
+                      rgba(255,255,255,.07) 3px,
+                      rgba(255,255,255,.018) 9px,
+                      rgba(255,255,255,0) 18px),
+      linear-gradient(180deg,rgba(52,211,153,.92) 0,
+                      rgba(16,185,129,.87) 14px,
+                      rgba(16,185,129,.87));
+
+    /* Bord de la colonne, pour les éléments FLOTTANTS qui ne peuvent pas
+       hériter du rembourrage de `main` : au-delà de --largeur le contenu est
+       centré, son bord gauche vaut donc (50% − largeur/2 + gouttière) ; en
+       dessous il colle simplement à la gouttière. Une seule écriture, quatre
+       usages — capsule d'onglets, bouton d'ajout, bandeau d'annulation, barre
+       du haut. C'est ce qui les fait tomber sur les mêmes verticales que le
+       contenu quelle que soit la largeur de la fenêtre. */
+    --marge-flot:max(var(--pad-x),calc(50% - var(--largeur) / 2 + var(--pad-x)));
+    /* Aplomb de la couche flottante du bas (encoche comprise). Sert au
+       rembourrage bas de `main` ET au bouton d'ajout : les deux doivent bouger
+       ensemble, sinon la dernière ligne du journal passe sous la capsule. */
+    --bas-flot:calc(14px + env(safe-area-inset-bottom));
+    /* Gabarit de la couche flottante du bas : la capsule d'onglets et le
+       bouton d'ajout font la MÊME hauteur, au repos comme replié. Deux objets
+       posés côte à côte au même aplomb ne peuvent pas avoir deux hauteurs
+       différentes sans qu'on lise un défaut d'alignement plutôt qu'une
+       intention.
+       ⚠️ Ces deux valeurs sont des jetons STATIQUES : le repli au défilement
+       anime `height`/`width` directement, il ne réécrit pas la variable. Tout
+       ce qui doit réserver de la place (le rembourrage bas de `main`, le
+       retrait de la capsule, l'aplomb du bandeau d'annulation) lit donc la
+       valeur DÉPLIÉE, c'est-à-dire le pire cas. Rien ne saute au défilement. */
+    --h-flot:56px; --h-flot-min:44px;
+    /* Hauteurs de la barre du haut sur MOBILE : dépliée (Large Title) et
+       repliée. Deux valeurs écrites, comme pour la couche flottante du bas et
+       pour la même raison — l'animation de défilement interpole `height`, elle
+       ne réécrit pas la variable, et `main` doit réserver le PIRE CAS en
+       rembourrage haut sans quoi le contenu sauterait au premier pixel. */
+    --h-bar:92px; --h-bar-min:54px;
+    /* Fond des champs de saisie. Un NOIR translucide et non plus `--bg`
+       opaque : les fiches sont devenues du verre, et un rectangle opaque
+       posé dessus fait un trou dans la matière. Translucide, le champ se
+       lit comme un creux dans la surface — ce qu'il est. */
+    --champ-verre:rgba(0,0,0,.26);
+    --champ-creux:inset 0 1px 2px rgba(0,0,0,.4);
   }
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   body{margin:0;background:var(--bg);color:var(--txt);
-       font:16px/1.45 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",
-            Roboto,sans-serif;
+       font:16px/1.5 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",
+            Inter,Roboto,"Helvetica Neue",sans-serif;
        /* `tnum` : les chiffres prennent tous la même largeur. Sans ça, un total
           qui passe de 1 369 à 1 428 fait sautiller toute la ligne — le genre de
           tremblement qu'on ne sait pas nommer mais qui fait bon marché. */
        font-feature-settings:"tnum" 1,"cv05" 1;
        -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
-       padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
-  header{padding:18px 18px 12px;display:flex;align-items:baseline;gap:10px}
-  h1{font-size:19px;margin:0;font-weight:650;letter-spacing:-.015em}
-  .jour{color:var(--faible);font-size:13px}
-  /* La réserve du bas ne sert plus qu'à dégager le bouton flottant : le résumé
-     défile désormais avec le contenu au lieu d'être une barre fixe. */
-  main{padding:0 14px calc(96px + env(safe-area-inset-bottom))}
+       /* La réserve d'encoche du HAUT est passée au header : celui-ci est
+          désormais collant, et un rembourrage sur <body> lui interdirait
+          d'atteindre le bord haut de l'écran — il resterait suspendu à
+          quelques pixels du bord, avec du contenu qui défile dans la fente.
+          Le bas reste ici, il ne gêne personne. */
+       padding:0}
+
+  /* ══════════════════════════════════════════════════════════════════
+     COUCHE FLOTTANTE — le verre
+     ──────────────────────────────────────────────────────────────────
+     La liste ci-dessous est l'inventaire complet de ce qui flotte. Elle
+     est écrite en clair, et pas dérivée d'une classe `.verre` posée dans
+     le HTML, parce que c'est une DÉCISION de hiérarchie et non un effet :
+     on doit pouvoir la lire d'un coup d'œil et voir que le contenu n'y
+     est pas.
+     ══════════════════════════════════════════════════════════════════ */
+  /* `header` est ABSENT de cette liste, volontairement : son flou est porté
+     par `header::before`, dont l'opacité part de zéro (voir plus bas). Le
+     remettre ici ferait flouter le haut de l'écran en permanence, y compris
+     quand la barre est censée ne pas exister. */
+  .onglets,#fab,.annul,dialog{
+    -webkit-backdrop-filter:var(--verre-flou);
+    backdrop-filter:var(--verre-flou);
+  }
+  /* Anneau de réfraction. Un masque `content-box` moins le masque plein
+     laisse EXACTEMENT le pourtour : on y applique un second flou, plus
+     contrasté et plus saturé, comme la lumière qui se concentre sur la
+     tranche d'une lentille. `pointer-events:none` est vital — sans lui
+     l'anneau avale les clics sur le bord des boutons de la capsule.
+
+     ⚠️ Trois réglages tiennent ensemble, corrigés le 13/09/2026 après un
+     « ce contour blanchâtre ressort trop » de JB, mesure à l'appui : la bande
+     de 6 px restait à 42-48 de luminance contre 34 de face, SUR TOUT LE
+     POURTOUR. Un ruban clair qui fait le tour d'une forme, l'œil le lit comme
+     un trait de contour, pas comme une tranche.
+       · 6px → 3px : une tranche est fine. À 6 px ce n'était plus un bord,
+         c'était un cadre.
+       · brightness 1.22 → 1.09, saturate 1.5 → 1.22 : de quoi voir la lumière
+         se concentrer, pas de quoi peindre un liseré.
+     La directionnalité (vif en haut, éteint en bas) est portée par
+     `--verre-liseret`, PAS par ce masque.
+
+     🚫 Ne pas tenter de dégrader le masque extérieur vers le bas pour éteindre
+     l'anneau : essayé le 13/09/2026, ça fantôme tout le texte de la page.
+     `mask-composite:exclude` compose en `A(1−B) + B(1−A)`. À l'intérieur de la
+     forme, le masque `content-box` vaut B=1 ; un extérieur A=.55 y donne donc
+     `.45` au lieu de 0, et l'anneau cesse d'être un anneau : il recouvre toute
+     la surface et floute ce qu'il y a dessous. Les DEUX masques doivent rester
+     des noirs pleins. (Si la directionnalité devait un jour passer par le
+     masque, il faudrait `subtract`/`source-out` — `A ∧ ¬B` — et le vérifier
+     dans Safari, pas seulement dans Chrome.) */
+  header::after,.onglets::after,.annul::after,dialog::after{
+    content:'';position:absolute;inset:0;border-radius:inherit;
+    pointer-events:none;z-index:3;padding:2px;
+    -webkit-backdrop-filter:blur(2px) brightness(1.045) saturate(1.12);
+    backdrop-filter:blur(2px) brightness(1.045) saturate(1.12);
+    -webkit-mask:linear-gradient(#000,#000) content-box,
+                 linear-gradient(#000,#000);
+    -webkit-mask-composite:xor;
+    mask:linear-gradient(#000,#000) content-box,linear-gradient(#000,#000);
+    mask-composite:exclude;
+  }
+  /* Sans `backdrop-filter`, un fond translucide ne floute rien : il laisse
+     simplement voir le texte du journal à travers la barre. On repasse donc
+     à des aplats opaques — moins beau, lisible. */
+  @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
+    header,.onglets,.annul,dialog{background:var(--carte-h) !important}
+    header::after,.onglets::after,.annul::after,dialog::after{display:none}
+  }
+
+  /* ── Colonne commune ───────────────────────────────────────────────
+     header, onglets et main partagent la même colonne centrée et la même
+     gouttière. C'est ce qui manquait : le contenu partait du bord de l'écran,
+     et chaque bloc réglait son air dans son coin — 18 px pour le header,
+     14 px pour le main, 16 px pour les onglets — si bien que rien ne tombait
+     sur la même verticale. Le plafond de largeur sert à autre chose : au-delà
+     d'environ 1100 px une ligne de texte cesse d'être lisible d'un seul
+     balayage de l'œil, et un journal étiré sur 2000 px éloigne chaque chiffre
+     de son voisin sans rien apporter. */
+  main{width:100%;max-width:var(--largeur);
+       margin-left:auto;margin-right:auto;
+       padding-left:var(--pad-x);padding-right:var(--pad-x)}
+
+  /* ── Barre du haut ────────────────────────────────────────────────
+     COLLANTE et EN VERRE, c'est-à-dire que le journal lui passe DESSOUS au
+     défilement au lieu de la pousser hors de l'écran. C'est la moitié de
+     l'idée du Liquid Glass : une couche de contrôles qui ne bouge pas, et un
+     contenu qui coule derrière. Sans ça le verre n'a rien à réfracter et se
+     réduit à un fond gris translucide.
+
+     Elle est PLEINE LARGEUR, contrairement à `main`. Une barre bornée à
+     1120 px sur un écran de 1900 laisserait le contenu défiler à découvert de
+     part et d'autre — la couche flottante doit couvrir toute la largeur de ce
+     qu'elle recouvre. Son CONTENU, lui, reste sur la colonne commune : c'est
+     le rôle du `--marge-flot`, qui reproduit en rembourrage ce que `main`
+     obtient en marges automatiques. */
+  header{position:sticky;top:0;z-index:50;width:100%;
+         padding:calc(var(--pad-y) + env(safe-area-inset-top))
+                 var(--marge-flot) 12px;
+         /* Grille et non plus une ligne : le titre passe en « large title »
+            iOS avec la date en sous-titre dessous, et le logo comme la
+            déconnexion couvrent les deux rangées. En flex il aurait fallu un
+            div d'emballage dans le HTML pour empiler ces deux lignes. */
+         /* UNE seule rangée. Deux rangées dont une vide se partageaient la
+            hauteur et désalignaient les éléments qui couvraient les deux. */
+         display:grid;grid-template-columns:auto 1fr auto;
+         grid-template-areas:"logo titre deco";
+         column-gap:12px;align-items:center}
+  /* ⚠️ Le verre n'est PAS sur le <header>, il est sur ce ::before, et son
+     opacité part de ZÉRO. Corrigé le 13/09/2026 sur un « elle est nulle, elle
+     existe pas dans cette forme dans iOS 26 » de JB, qui visait juste : un
+     bandeau pleine largeur opaque en permanence, titre à gauche, bouton à
+     droite, c'est une *app bar* Material. iOS n'en a pas. Là-bas la barre est
+     INVISIBLE au repos — pas de fond, pas de filet, pas de flou, le contenu
+     monte jusqu'au bord de l'écran — et le matériau n'apparaît que lorsque
+     quelque chose passe dessous. C'est ce qui fait qu'un écran iOS a l'air de
+     commencer au contenu et pas à une barre d'outils.
+     Le flou doit vivre ici et pas sur le <header> : un `backdrop-filter` sur
+     le header flouterait le décor même à opacité nulle du fond, et on aurait
+     une bande trouble au-dessus d'un écran par ailleurs net. Un élément à
+     `opacity:0` n'est pas peint, son `backdrop-filter` ne s'applique donc pas
+     — c'est exactement ce qu'on veut, et c'est vérifié à la mesure. */
+  header::before{content:'';position:absolute;inset:0;z-index:-1;
+                 background:var(--verre-fond);
+                 -webkit-backdrop-filter:var(--verre-flou);
+                 backdrop-filter:var(--verre-flou);
+                 box-shadow:var(--verre-liseret),
+                            0 6px 24px rgba(0,0,0,.34);
+                 opacity:0}
+  /* L'anneau de réfraction du header suit le même sort : un rebord lumineux
+     flottant au-dessus de rien serait le seul objet visible d'une barre
+     censée être absente. */
+  header::after{opacity:0}
+  @supports (animation-timeline:scroll()){
+    @keyframes paraitVerre{to{opacity:1}}
+    header::before,header::after{
+      animation:paraitVerre linear both;
+      animation-timeline:scroll(root block);
+      /* Plage COURTE et qui démarre tôt : la barre doit être là dès que du
+         contenu la touche. Sur la plage 30→110px de la tab bar, elle serait
+         encore à moitié transparente avec du texte dessous — c'est le moment
+         précis où on a besoin d'elle. */
+      animation-range:2px 48px}
+    /* JB, 13/09/2026 (2e version) : fini le voile de verre dégradé — ce
+       qu'il veut, c'est un SIMPLE rideau de la couleur du fond : parfaitement
+       opaque en haut, qui fond vers transparent en bas. Le mask remplace la
+       teinte de verre sur le ::before du header : plus de flou, plus de
+       spéculaire, juste --bg qui s'évanouit. La couche animation (paraitVerre)
+       reste : au repos en haut de page le rideau est invisible, il apparaît
+       quand le contenu passe dessous. Le liseré (::after) suit le même
+       traitement — une arête lumineuse en plein dégradé ferait tache. */
+    header::before{
+      -webkit-backdrop-filter:none;backdrop-filter:none;
+      background:var(--bg);
+      box-shadow:none;
+      -webkit-mask-image:linear-gradient(180deg,#000 0,#000 65%,transparent 100%);
+              mask-image:linear-gradient(180deg,#000 0,#000 65%,transparent 100%)}
+    header::after{display:none}
+  }
+  /* Le logo est décoratif — le <h1> juste à côté porte déjà le nom, d'où
+     `alt=""` : l'annoncer deux fois n'apprend rien à un lecteur d'écran. */
+  header .logo{grid-area:logo;width:34px;height:34px;align-self:center;
+               /* Le logo est le seul objet coloré de la barre : une ombre
+                  portée l'assoit sur le verre au lieu de le laisser flotter
+                  comme un autocollant. */
+               filter:drop-shadow(0 2px 5px rgba(0,0,0,.45))}
+  /* Déconnexion : une petite capsule de verre plutôt qu'un rectangle à
+     liseré. Dans une barre vitrée, un coin droit est le seul détail qui
+     dise « ceci a été dessiné ailleurs ». */
+  header .deco{grid-area:deco;color:var(--doux);font-size:12px;
+               text-decoration:none;border:1px solid rgba(255,255,255,.12);
+               border-radius:99px;padding:6px 13px;cursor:pointer;
+               background:rgba(255,255,255,.06);
+               box-shadow:inset 0 1px 0 rgba(255,255,255,.14);
+               transition:color .16s ease,border-color .16s ease,
+                          background .16s ease}
+  header .deco:hover{color:var(--accent-clair);border-color:var(--accent-bord);
+                     background:var(--accent-sourd)}
+  /* « Large title » : le titre d'un écran iOS n'est pas une étiquette de
+     19 px posée à côté d'un logo, c'est le premier objet de la page. Le
+     crénage négatif est ce qui empêche une graisse 700 à cette taille de
+     paraître soufflée. */
+  /* ⚠️ PAS d'`align-self` ici. Il valait `end`, hérité de l'époque où la barre
+     avait deux rangées et où le titre devait se caler sur le bas de la sienne.
+     La rangée morte partie, ce `end` survivait seul et battait le
+     `align-items:center` de la grille : logo et bouton centrés, titre 25 px
+     plus bas. Le laisser à l'initiale le fait suivre la grille, donc rester
+     aligné à chaque hauteur intermédiaire du repli — et pas seulement aux
+     deux extrêmes, qui sont les seules qu'on pense à regarder. */
+  h1{grid-area:titre;font-size:25px;margin:0;font-weight:700;
+     letter-spacing:-.032em;line-height:1.08}
+  .jour{color:var(--faible);font-size:12.5px}
+  /* Les bords gauche/droite viennent de la colonne commune ci-dessus ; il ne
+     reste ici que la réserve du bas. Elle dégage la capsule d'onglets ET le
+     bouton d'ajout, qui flottent tous deux au même aplomb : 14 px de bord,
+     54 px de haut, plus une respiration pour qu'une dernière ligne de journal
+     ne vienne pas se coller sous le verre. Le contenu doit pouvoir passer
+     dessous au défilement — c'est le principe — mais il doit aussi pouvoir
+     s'arrêter en dessous une fois arrivé au bout. */
+  main{padding-bottom:calc(var(--bas-flot) + var(--h-flot) + 22px)}
 
   /* La barre de recherche est le cœur : grande, toujours atteignable au pouce. */
   /* Dégradé de sortie sous la barre collante : le contenu se dissout au lieu
      de passer net sous elle. Un bord franc trahit la superposition. */
   .rech{position:sticky;top:0;padding:8px 4px 10px;z-index:10;
-        background:linear-gradient(var(--bg) 72%,rgba(12,15,19,0))}
+        background:linear-gradient(var(--bg) 72%,rgba(18,18,26,0))}
   input,button,select{font:inherit;color:inherit}
   button{cursor:pointer;transition:transform .13s var(--sortie),
          background .13s ease,border-color .13s ease,opacity .13s ease}
   button:active{transform:scale(.97)}
+  /* Champ de recherche en CAPSULE, comme la barre de recherche d'iOS : creusé
+     dans la feuille de verre, avec ses deux boutons en pastilles rondes à
+     côté. Trois rectangles alignés faisaient un formulaire ; trois capsules
+     font une barre d'outils. */
   .barre{display:flex;gap:8px}
-  #q{flex:1;min-width:0;padding:15px 16px;border-radius:var(--r-m);
-     border:1px solid var(--bord);background:var(--carte);font-size:17px;outline:none;
+  #q{flex:1;min-width:0;padding:14px 18px;border-radius:99px;
+     border:1px solid rgba(255,255,255,.1);background:var(--champ-verre);
+     font-size:17px;outline:none;box-shadow:var(--champ-creux);
      transition:border-color .15s ease,box-shadow .15s ease}
   #q::placeholder{color:var(--faible)}
-  #q:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-sourd)}
-  #scan,#maison{width:54px;flex:0 0 54px;border-radius:var(--r-m);
-        border:1px solid var(--bord);background:var(--carte);font-size:22px;
-        line-height:1}
-  #scan:active,#maison:active{border-color:var(--bord-fort);background:var(--carte-h)}
+  #q:focus{border-color:var(--accent);
+           box-shadow:var(--champ-creux),0 0 0 3px var(--accent-sourd)}
+  #scan,#maison{width:50px;height:50px;flex:0 0 50px;border-radius:50%;
+        border:1px solid rgba(255,255,255,.12);
+        background:rgba(255,255,255,.07);
+        box-shadow:inset 0 1px 0 rgba(255,255,255,.16);
+        font-size:20px;line-height:1;display:grid;place-items:center}
+  #scan:active,#maison:active{border-color:var(--bord-fort);
+        background:rgba(255,255,255,.14)}
   #scan[disabled]{opacity:.4}
-  /* Le flux vidéo n'apparaît que si le direct est possible (origine sécurisée). */
-  #flux{width:100%;border-radius:12px;margin-top:8px;display:none;background:#000}
+  /* Viseur du scan direct — n'apparaît que si le direct est possible (origine
+     sécurisée). Même gabarit que le plugin Hermes : un cadre à ratio FIXE et la
+     vidéo posée DEDANS en absolu (100 %/100 % + object-fit cover). Avant, la
+     vidéo seule calait sa hauteur sur le ratio intrinsèque du flux : un flux
+     portrait d'iPhone donnait une vignette minuscule. 4/3 plutôt que 16/9 :
+     sur la largeur d'un téléphone, ça fait un viseur haut où le code-barres
+     tient gros. `min-height` est le filet des navigateurs sans aspect-ratio.
+
+     Superposition sur iOS Safari : la vidéo inline est peinte dans un calque
+     matériel à part et, faute de stacking context sur le conteneur, WebKit la
+     compose AU-DESSUS des frères ordinaires — le réticule disparaissait sur
+     iPhone alors que Chrome le dessine (bug corrigé dans le plugin le
+     2026-09-15). D'où, en ceinture et bretelles : `isolation:isolate` +
+     `translateZ(0)` sur le conteneur (stacking context ET calque à lui ; le
+     translateZ fait au passage respecter overflow:hidden + border-radius par
+     la vidéo, autre travers WebKit), z-index explicite sur la vidéo, et pour
+     le réticule un z-index supérieur plus son propre translateZ(0), donc son
+     propre calque, composé au-dessus de celui de la vidéo. */
+  #viseur{position:relative;width:100%;aspect-ratio:4/3;min-height:200px;max-height:320px;
+          margin-top:8px;border-radius:var(--r-m);overflow:hidden;background:#000;
+          display:none;isolation:isolate;transform:translateZ(0)}
+  #flux{position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;
+        display:block;z-index:1}
+  /* Réticule : aide au cadrage, sans animation. Blanc et --danger en dur, pas
+     les jetons du thème : ces couleurs se posent sur l'image de la caméra, pas
+     sur le fond de la page. `pointer-events:none` pour ne rien intercepter.
+     top/left/right/bottom explicites plutôt que `inset`, que Safari ne connaît
+     qu'à partir d'iOS 14.5 — sans lui la boîte ferait 0 × 0. */
+  #viseur .reticule{position:absolute;top:0;left:0;right:0;bottom:0;pointer-events:none;
+                    z-index:2;transform:translateZ(0)}
+  #viseur .cadre{position:absolute;left:6%;right:6%;top:24%;bottom:24%;
+                 border:2px solid rgba(255,255,255,.55);border-radius:6px}
+  #viseur .trait{position:absolute;left:10%;right:10%;top:50%;height:2px;
+                 background:#f0655c;opacity:.85}
   .etat{color:var(--faible);font-size:13px;text-align:center;padding:8px 4px;
         min-height:20px}
 
@@ -72,11 +502,15 @@
   .rapide{display:flex;gap:7px;margin:9px 2px 0;overflow-x:auto;
           scrollbar-width:none;-webkit-overflow-scrolling:touch}
   .rapide::-webkit-scrollbar{display:none}
-  .rapide button{flex:0 0 auto;padding:9px 13px;border-radius:99px;font-size:13px;
-                 border:1px solid var(--bord);background:var(--surface);
+  .rapide button{flex:0 0 auto;padding:10px 13px;border-radius:99px;font-size:13px;
+                 font-weight:550;
+                 border:1px solid rgba(255,255,255,.1);
+                 background:rgba(255,255,255,.06);
+                 box-shadow:inset 0 1px 0 rgba(255,255,255,.12);
                  color:var(--doux);white-space:nowrap}
-  .rapide button.fort{border-color:var(--accent);color:var(--accent);
-                      background:var(--accent-sourd)}
+  .rapide button.fort{border-color:var(--accent-bord);color:var(--accent-clair);
+                      background:var(--accent-sourd);
+                      box-shadow:inset 0 1px 0 rgba(52,211,153,.24)}
   /* Le rail ne défile plus horizontalement : sur la capture de JB, le bouton
      protéines sortait de l'écran, texte coupé net. Un bouton qu'on ne lit
      qu'à moitié n'est pas un bouton. Deux colonnes égales, libellés courts. */
@@ -84,43 +518,63 @@
   .rapide button{width:100%;text-align:center}
 
   .pastilles{display:flex;flex-wrap:wrap;gap:6px;margin:9px 2px 2px}
-  .pastilles button{padding:8px 12px;border-radius:99px;font-size:13px;
-                    border:1px solid var(--bord);background:var(--carte);
+  .pastilles button{padding:9px 13px;border-radius:99px;font-size:13px;
+                    border:1px solid rgba(255,255,255,.1);
+                    background:rgba(255,255,255,.055);
+                    box-shadow:inset 0 1px 0 rgba(255,255,255,.11);
                     color:var(--txt);max-width:100%;overflow:hidden;
                     text-overflow:ellipsis;white-space:nowrap}
-  .pastilles button:active{background:var(--carte-h);border-color:var(--bord-fort)}
+  .pastilles button:active{background:rgba(255,255,255,.13);
+                           border-color:var(--bord-fort)}
   .pastilles button i{font-style:normal;color:var(--faible);font-size:11.5px;
                       margin-left:5px}
 
   /* Bandeau d'annulation. Flotte AU-DESSUS de la barre du bas, pas dedans :
      il doit rester lisible pendant que le total se recalcule derrière. */
-  .annul{position:fixed;left:14px;right:14px;z-index:60;display:flex;
+  /* En verre comme le reste de la couche flottante, et en CAPSULE : c'est le
+     seul objet éphémère de l'interface, l'arrondi complet le distingue des
+     cartes du journal sur lesquelles il vient se poser. */
+  .annul{position:fixed;z-index:80;display:flex;
+         left:var(--marge-flot);right:var(--marge-flot);
+         /* Juste AU-DESSUS de la couche flottante, jamais dedans : le total se
+            recalcule derrière pendant les six secondes où il est là, et il
+            faut pouvoir lire les deux. */
+         bottom:calc(var(--bas-flot) + var(--h-flot) + 12px);
          justify-content:space-between;align-items:center;gap:12px;
-         background:var(--carte-h);border:1px solid var(--bord-fort);
-         border-radius:var(--r-m);padding:12px 14px;font-size:13.5px;
-         box-shadow:0 10px 30px rgba(0,0,0,.55);
-         animation:monte .2s var(--sortie)}
-  .annul button{background:none;border:none;color:var(--accent);font-weight:600;
-                font-size:14px;padding:6px 2px;min-height:36px}
+         background:var(--verre-fond);border:1px solid rgba(255,255,255,.14);
+         border-radius:99px;padding:11px 10px 11px 18px;font-size:13.5px;
+         box-shadow:var(--verre-liseret),var(--verre-ombre);
+         animation:monte .32s var(--ressort)}
+  .annul button{background:rgba(255,255,255,.09);
+                border:1px solid var(--accent-bord);
+                box-shadow:inset 0 1px 0 rgba(255,255,255,.18);
+                color:var(--accent-clair);font-weight:600;border-radius:99px;
+                font-size:13.5px;padding:0 16px;min-height:36px}
+  .annul button:hover{background:var(--accent-sourd)}
 
   .res{list-style:none;margin:6px 0 0;padding:0}
-  .res li{background:var(--carte);border:1px solid var(--bord);border-radius:var(--r-m);
+  /* Les résultats vivent DANS la feuille de verre : un aplat opaque y ferait
+     un trou, comme les champs de saisie. Un blanc translucide, au contraire,
+     appartient à la surface — c'est le fond « grouped » des listes iOS. */
+  .res li{background:rgba(255,255,255,.055);
+          border:1px solid rgba(255,255,255,.08);border-radius:var(--r-m);
+          box-shadow:inset 0 1px 0 rgba(255,255,255,.09);
           padding:13px 14px;margin-bottom:7px;cursor:pointer;
           transition:transform .13s var(--sortie),background .13s ease}
-  .res li:active{background:var(--carte-h);transform:scale(.985)}
+  .res li:active{background:rgba(255,255,255,.12);transform:scale(.985)}
   .nom{font-size:15px;line-height:1.3;letter-spacing:-.005em}
   .meta{color:var(--faible);font-size:12.5px;margin-top:3px}
   /* Avertissement « poids comestible ». Discret mais visible : il ne doit pas
      bloquer la saisie (100 g convient souvent), juste empêcher l'erreur muette
      de peser un fruit avec sa peau sur une fiche qui l'exclut. */
   .avert{display:none;margin-top:8px;padding:9px 11px;border-radius:var(--r-s);
-         background:rgba(214,162,56,.11);border:1px solid rgba(214,162,56,.3);
-         color:#e2b862;font-size:12.5px;line-height:1.4}
+         background:var(--orange-sourd);border:1px solid var(--orange-bord);
+         color:var(--orange-clair);font-size:12.5px;line-height:1.4}
   .avert.on{display:block}
   .tag{font-size:10.5px;padding:2px 7px;border-radius:99px;
        border:1px solid var(--bord);background:var(--surface);
        color:var(--faible);margin-left:6px;vertical-align:1px}
-  .tag.calc{color:var(--warn);border-color:#4a3c1e}
+  .tag.calc{color:var(--orange-clair);border-color:var(--orange-bord)}
 
   .sect{color:var(--faible);font-size:11px;text-transform:uppercase;
         font-weight:600;letter-spacing:.09em;margin:20px 4px 9px;
@@ -143,12 +597,27 @@
   .nav .jour small{display:block;color:var(--faible);font-weight:400;font-size:11.5px;
                    letter-spacing:0;margin-top:1px}
 
-  /* Sélecteur de repas : segmenté, un seul appui, pas de menu déroulant. */
-  .repas{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;margin:12px 0 2px}
-  .repas button{padding:10px 0;border-radius:var(--r-s);font-size:12.5px;
-                border:1px solid var(--bord);background:var(--surface);color:var(--doux)}
-  .repas button.on{border-color:var(--accent);color:var(--txt);
-                   background:var(--accent-sourd)}
+  /* Sélecteur de repas : segmenté, un seul appui, pas de menu déroulant.
+     Rendu comme le segmented control d'iOS 26 — un SILLON creusé (ombre
+     interne) dans lequel se posent des capsules, et non quatre boutons
+     alignés. Le creux est ce qui dit « ces quatre-là forment un seul
+     réglage » ; sans lui, quatre rectangles à liseré se lisent comme quatre
+     cases à cocher indépendantes. */
+  .repas{display:grid;grid-template-columns:repeat(4,1fr);gap:3px;
+         margin:12px 0 2px;padding:3px;border-radius:99px;
+         background:rgba(0,0,0,.26);
+         box-shadow:inset 0 1px 2px rgba(0,0,0,.45),
+                    inset 0 0 0 1px rgba(255,255,255,.05)}
+  .repas button{padding:9px 0;border-radius:99px;font-size:12.5px;
+                font-weight:550;border:none;background:transparent;
+                color:var(--doux);letter-spacing:-.005em;
+                transition:color .22s var(--ressort),
+                           background .22s var(--ressort)}
+  /* Verre teinté, cohérent avec la pastille des onglets : dans cette
+     interface, « sélectionné » se dit toujours de la même façon. */
+  .repas button.on{color:var(--sur-accent);background:var(--verre-accent);
+                   box-shadow:inset 0 1px 0 rgba(255,255,255,.4),
+                              0 2px 8px rgba(16,185,129,.32)}
 
   /* Le total flotte : visible sans scroller, c'est l'info qu'on vient chercher. */
   /* ── Carte de résumé ────────────────────────────────────────────────
@@ -157,26 +626,62 @@
      et il restait un tiers pour le journal — c'est-à-dire pour la seule chose
      qu'il vient regarder. Elle défile maintenant avec le contenu : on la lit en
      arrivant, puis elle laisse la place. */
-  .resume{background:var(--carte);border:1px solid var(--bord);
-          border-radius:var(--r-l);padding:15px 16px 14px;margin-bottom:14px;
-          box-shadow:var(--ombre);display:flex;flex-direction:column;gap:11px}
+  /* ── Bilan du jour, en section groupée ────────────────────────────
+     Même conversion que les listes, demandée par JB le 13/09/2026. Ici le
+     contenu n'est pas une liste d'entrées mais quatre mesures empilées —
+     jauges, mangé/dépensé, solde, macros. Le traitement iOS est le même : un
+     intitulé dehors, pas de bordure, et des filets QUI SÉPARENT AU LIEU
+     D'ENCADRER.
+     Le rembourrage passe des bords de la carte à CHAQUE enfant, et c'est ce
+     qui rend la chose possible : tant que la carte portait le rembourrage, un
+     filet posé sur un enfant s'arrêtait à 16 px des DEUX côtés et se lisait
+     comme un trait souligné. Porté par les enfants, il part du texte à gauche
+     et file jusqu'au bord droit — le décalage iOS.
+     Le dégradé émeraude reste : c'est le seul objet de l'écran qui porte le
+     chiffre du jour, et le distinguer d'une liste ordinaire a un sens. */
+  .resume{background:var(--carte);border:none;
+          border-radius:var(--r-l);padding:0;margin-bottom:18px;
+          box-shadow:var(--ombre);display:flex;flex-direction:column;gap:0}
   .resume.heros{background:
-      radial-gradient(120% 140% at 0% 0%,rgba(88,166,255,.16),transparent 58%),
-      var(--carte);
-      border-color:var(--bord-fort)}
+      radial-gradient(120% 140% at 0% 0%,rgba(16,185,129,.15),transparent 58%),
+      var(--carte)}
+  .resume>*{padding:13px 16px}
+  .resume>*+*{background-image:linear-gradient(var(--bord),var(--bord));
+              background-repeat:no-repeat;
+              background-size:calc(100% - 16px) 1px;
+              background-position:16px 0}
   .resume .duo{margin-top:0}
-  .resume .solde{border-top:1px solid var(--bord);padding-top:9px}
+  /* « Solde du jour » est l'INTITULÉ du nombre qui le suit, pas une mesure de
+     plus. Le filet automatique entre enfants les séparait — on coupait une
+     légende de sa valeur, ce qui est le contraire de ce que fait un
+     séparateur. Les deux ne forment qu'un bloc. */
+  .resume .solde{border-top:none;padding-bottom:0}
+  .resume .solde + .totalLigne{background-image:none;padding-top:5px}
   .totalLigne{display:flex;justify-content:space-between;align-items:center}
 
   /* Bouton d'ajout flottant. Un seul point d'entrée pour « ajouter », au pouce,
-     toujours au même endroit. Tout le reste de l'écran appartient au journal. */
-  #fab{position:fixed;right:18px;z-index:40;
-       bottom:calc(20px + env(safe-area-inset-bottom));
-       width:60px;height:60px;border-radius:50%;border:none;
-       background:linear-gradient(180deg,#6fb4ff,var(--accent));color:#06121c;
-       font-size:33px;font-weight:300;line-height:1;
-       box-shadow:0 6px 20px rgba(88,166,255,.42),0 2px 6px rgba(0,0,0,.5)}
-  #fab:active{transform:scale(.93)}
+     toujours au même endroit. Tout le reste de l'écran appartient au journal.
+     Il est DÉTACHÉ de la capsule d'onglets et posé au même aplomb, exactement
+     comme le bouton de recherche de Photos sur iOS 26 : deux objets de verre
+     côte à côte, l'un pour naviguer, l'autre pour agir. Les fondre en un seul
+     rail donnerait un quatrième onglet — or « Ajouter » n'est pas un endroit
+     où l'on va, c'est quelque chose que l'on fait.
+     Le verre est TEINTÉ émeraude, pas peint : le journal reste visible au
+     travers, ce qui est la seule chose qui distingue une lentille colorée
+     d'une pastille de couleur. */
+  #fab{position:fixed;right:var(--marge-flot);z-index:70;
+       bottom:var(--bas-flot);
+       width:var(--h-flot);height:var(--h-flot);border-radius:50%;
+       border:1px solid rgba(255,255,255,.22);
+       background:var(--verre-accent);
+       color:var(--sur-accent);
+       font-size:29px;font-weight:300;line-height:1;
+       display:flex;align-items:center;justify-content:center;
+       box-shadow:inset 0 1px 0 rgba(255,255,255,.45),
+                  0 8px 26px rgba(16,185,129,.42),0 2px 8px rgba(0,0,0,.45);
+       transition:transform .3s var(--ressort),box-shadow .3s var(--ressort),
+                  filter .16s ease}
+  #fab:active{transform:scale(.9)}
 
   /* Feuille d'ajout : plein écran. Une demi-feuille laisserait le journal
      visible derrière et rejouerait l'encombrement qu'on vient de supprimer. */
@@ -187,17 +692,47 @@
      restait dans le flux et réapparaissait en bas de page au défilement
      (signalé par JB le 2026-09-05). Le piège est silencieux : rien n'échoue,
      la boîte est juste toujours là. */
+  /* Le fond n'est plus opaque mais VITRÉ : la feuille se pose sur le journal
+     au lieu de l'effacer, et on garde le sentiment d'être resté à la même
+     page — c'est exactement ce que fait une sheet iOS. Elle reste en plein
+     écran pour la raison d'origine (une demi-feuille rejouerait l'encombrement
+     qu'on a supprimé) ; ce qui change, c'est qu'on devine le journal derrière
+     au lieu de le perdre de vue. */
   dialog.feuille{width:100vw;max-width:none;height:100dvh;max-height:none;
                  margin:0;border:none;border-radius:0;padding:0;
-                 background:var(--bg);animation:glisse .24s var(--sortie)}
+                 background:var(--verre-fond-fort);
+                 box-shadow:var(--verre-liseret);
+                 animation:glisse .34s var(--ressort)}
   dialog.feuille[open]{display:flex;flex-direction:column}
   @keyframes glisse{from{transform:translateY(100%)}}
-  .feuilleHaut{display:flex;justify-content:space-between;align-items:center;
-               padding:calc(14px + env(safe-area-inset-top)) 16px 10px;
-               border-bottom:1px solid var(--bord);flex:0 0 auto}
-  .feuilleHaut b{font-size:17px;font-weight:650;letter-spacing:-.015em}
-  .feuilleHaut button{background:none;border:none;color:var(--doux);
-                      font-size:19px;min-width:44px;min-height:44px}
+  /* Barre de la feuille : collante et légèrement plus claire que la feuille
+     elle-même, pour que les résultats passent DESSOUS au défilement au lieu
+     de s'arrêter net sur un filet. Pas de `backdrop-filter` ici : son parent
+     est déjà du verre, et flouter du verre floute deux fois pour rien. */
+  .feuilleHaut{position:sticky;top:0;z-index:4;
+               display:flex;justify-content:space-between;align-items:center;
+               padding:calc(14px + env(safe-area-inset-top)) 16px 11px;
+               background:linear-gradient(180deg,rgba(255,255,255,.09),
+                                          rgba(255,255,255,.012));
+               box-shadow:inset 0 1px 0 rgba(255,255,255,.16),
+                          0 1px 0 rgba(255,255,255,.06);
+               flex:0 0 auto}
+  .feuilleHaut b{font-size:19px;font-weight:700;letter-spacing:-.025em}
+  /* Le « ✕ » d'iOS 26 est un bouton de verre rond, pas un glyphe nu : dans une
+     interface où tout flotte, un signe posé à même le fond n'a pas l'air
+     cliquable. La zone de frappe reste à 44 px, c'est le cercle qui fait 32. */
+  .feuilleHaut button{background:rgba(255,255,255,.09);
+                      border:1px solid rgba(255,255,255,.13);
+                      box-shadow:inset 0 1px 0 rgba(255,255,255,.18);
+                      color:var(--doux);border-radius:50%;
+                      font-size:14px;line-height:1;
+                      width:32px;height:32px;min-width:0;min-height:0;
+                      display:grid;place-items:center;
+                      /* La cible de 44 px est reconstituée en débord : le
+                         rond en fait 32, la zone sensible 44. */
+                      outline-offset:2px;position:relative}
+  .feuilleHaut button::after{content:'';position:absolute;inset:-6px}
+  .feuilleHaut button:hover{background:rgba(255,255,255,.16);color:var(--txt)}
   dialog.feuille .rech{position:static;background:none;padding:14px 14px 0}
   dialog.feuille .res{flex:1;overflow-y:auto;padding:0 14px
                       calc(18px + env(safe-area-inset-bottom));margin-top:8px}
@@ -217,14 +752,19 @@
                 box-shadow:inset 0 1px 1px rgba(0,0,0,.35)}
   /* Le dégradé et le reflet n'ont qu'un rôle : donner un volume à un objet de
      6 px de haut. À plat, une jauge ressemble à un `progress` de 2004. */
+  /* Trois états, trois couleurs, et l'ordre compte : ORANGE en chemin (c'est
+     la barre du logo), ÉMERAUDE quand la cible est franchie, ROUGE au-delà du
+     raisonnable. Le basculement orange → vert est l'information ; une jauge
+     qui garderait la même teinte du début à la fin demanderait de lire le
+     chiffre à droite pour savoir où on en est. */
   .jauge .barre{display:block;height:100%;border-radius:99px;
-                background:linear-gradient(180deg,#7cbcff,var(--accent));
-                box-shadow:0 0 10px rgba(88,166,255,.35);
+                background:linear-gradient(180deg,var(--orange-clair),var(--orange));
+                box-shadow:0 0 10px rgba(249,115,22,.32);
                 transition:width .45s var(--sortie)}
-  .jauge .barre.atteint{background:linear-gradient(180deg,#5fd472,var(--ok));
-                        box-shadow:0 0 10px rgba(63,185,80,.35)}
-  .jauge .barre.trop{background:linear-gradient(180deg,#e8bc5c,var(--warn));
-                     box-shadow:0 0 10px rgba(214,162,56,.35)}
+  .jauge .barre.atteint{background:linear-gradient(180deg,var(--accent-clair),var(--ok));
+                        box-shadow:0 0 10px rgba(16,185,129,.35)}
+  .jauge .barre.trop{background:linear-gradient(180deg,#f68a80,var(--danger));
+                     box-shadow:0 0 10px rgba(240,101,92,.32)}
   .jauge .val{flex:none;color:var(--doux)}
 
   /* Ligne de solde : apport − dépense Garmin. Séparée des jauges parce qu'elle
@@ -238,36 +778,257 @@
   .kcal .deficit{color:var(--ok)}
   .kcal .exces{color:var(--warn)}
 
-  /* ── Onglets ────────────────────────────────────────────────────────
-     En HAUT et pas en bas : la barre du bas porte déjà le total, et le
-     balayage horizontal est attribué aux jours. Deux gestes concurrents sur
-     la même zone, c'est un des deux qui ne marche jamais. */
-  /* Contrôle segmenté : un seul rail, une pastille qui glisse. Deux boutons
-     côte à côte qui s'allument chacun leur tour se lisent comme deux
-     interrupteurs indépendants ; un rail se lit comme un choix unique. */
-  .onglets{display:grid;grid-template-columns:1fr 1fr;gap:3px;margin:0 16px 14px;
-           background:var(--surface);border:1px solid var(--bord);
-           border-radius:12px;padding:3px}
-  .onglets button{padding:9px 0;border-radius:9px;font-size:14px;font-weight:500;
-                  border:none;background:transparent;color:var(--doux);
-                  letter-spacing:-.005em}
-  .onglets button.on{color:var(--txt);background:var(--carte-h);
-                     box-shadow:0 1px 2px rgba(0,0,0,.45)}
+  /* ══════════════════════════════════════════════════════════════════
+     CAPSULE D'ONGLETS
+     ──────────────────────────────────────────────────────────────────
+     Elle était un rail segmenté en haut de page, sous le titre. Elle
+     devient une capsule de verre DÉTACHÉE du bord bas, comme la tab bar
+     d'iOS 26 : elle flotte au-dessus du journal, le contenu passe
+     dessous, et elle reste au pouce quelle que soit la longueur de la
+     page. L'argument qui la tenait en haut — « la barre du bas porte
+     déjà le total » — est tombé le jour où le résumé s'est remis à
+     défiler avec le contenu : il n'y a plus rien en bas.
 
-  .bloc{background:var(--carte);border:1px solid var(--bord);border-radius:var(--r-l);
-        padding:15px 16px;margin-bottom:11px;box-shadow:var(--ombre)}
+     Le balayage horizontal reste attribué aux jours, et rien ne le
+     concurrence : on ne change pas d'onglet en glissant, on tape.
+
+     Trois pièces, à ne pas confondre :
+       · la capsule    — le verre, l'ombre, le liseré (ici) ;
+       · la pastille   — ::before, qui GLISSE d'un onglet à l'autre ;
+       · les segments  — icône + libellé, transparents, au-dessus.
+     ══════════════════════════════════════════════════════════════════ */
+  .onglets{position:fixed;z-index:70;
+           left:var(--marge-flot);right:var(--marge-flot);
+           bottom:var(--bas-flot);
+           /* Hauteur ÉCRITE, pas déduite du contenu : elle doit valoir
+              exactement celle du bouton d'ajout posé à côté, et le repli au
+              défilement doit avoir une valeur de départ à interpoler. */
+           height:var(--h-flot);
+           display:flex;gap:0;padding:5px;border-radius:99px;
+           /* Teinte FORTE (.80) et pas celle des barres (.62) : demandé par JB
+              le 14/09/2026, « le même rendu que la page login ». Le flou était
+              déjà identique des deux côtés — `saturate(180%) blur(30px)`, même
+              anneau, même liseré ; c'est la seule teinte qui les séparait, et
+              c'est elle qui faisait lire le menu comme un film sombre et la
+              carte de connexion comme un panneau dépoli.
+              On écrit le jeton fort ICI plutôt que de changer `--verre-fond` :
+              ce jeton sert aussi à la barre du haut et au bandeau d'annulation,
+              que JB n'a pas demandé à toucher. */
+           background:var(--verre-fond-fort);
+           /* .13 traçait un cerne net sur tout le contour, qui s'AJOUTAIT au
+              tour d'un pixel de `--verre-liseret` et à l'anneau de réfraction :
+              trois blancs empilés sur la même arête. La bordure est ici la plus
+              dispensable des trois — c'est la seule qui soit uniforme par
+              nature, alors que les deux autres savent s'éteindre vers le bas. */
+           border:1px solid rgba(255,255,255,.03);
+           box-shadow:var(--verre-liseret),var(--verre-ombre);
+           /* La capsule rétrécit par la droite quand le bouton d'ajout
+              apparaît (voir plus bas) : c'est une transition de LARGEUR,
+              et elle doit avoir la même courbe que la pastille qui
+              glisse dedans, sinon les deux mouvements se déphasent et
+              on voit deux animations au lieu d'une. */
+           transition:right .44s var(--ressort)}
+  /* Le bouton d'ajout n'existe que sur le journal (`montre()` le masque
+     ailleurs). Plutôt que de lui réserver un trou permanent à droite de la
+     capsule — visible et inexplicable sur les deux autres onglets — la
+     capsule se rétracte pour lui faire de la place et se ré-étale quand il
+     s'en va. Le `:has()` s'accroche à la classe `.on`, celle-là même que
+     `montre()` pose déjà : aucun crochet supplémentaire dans le JS, et rien
+     qui dépende d'un style en ligne. */
+  body:has(#ongJournal.on) .onglets{
+    right:calc(var(--marge-flot) + var(--h-flot) + 10px)}
+  @supports not selector(:has(*)){
+    /* Sans `:has()`, la place du bouton est réservée en permanence : mieux
+       vaut un vide constant qu'une capsule qui passe SOUS le bouton. */
+    .onglets{right:calc(var(--marge-flot) + var(--h-flot) + 10px)}
+  }
+  /* La pastille active. Une seule, qui se déplace — et pas trois fonds qui
+     s'allument à tour de rôle. La différence n'est pas cosmétique : un objet
+     qui se déplace dit « un seul choix parmi trois », trois fonds qui
+     clignotent disent « trois interrupteurs ». Elle est en verre TEINTÉ
+     émeraude et non en aplat : posée sur du verre, une pastille opaque
+     ressemble à un bouton collé par-dessus. */
+  .onglets::before{content:'';position:absolute;z-index:1;
+                   top:5px;bottom:5px;left:5px;
+                   width:calc((100% - 10px) / 3);border-radius:99px;
+                   background:var(--verre-accent);
+                   box-shadow:inset 0 1px 0 rgba(255,255,255,.4),
+                              0 3px 12px rgba(16,185,129,.4),
+                              0 1px 3px rgba(0,0,0,.35);
+                   transition:transform .44s var(--ressort)}
+  /* Un cran = une largeur de pastille, donc translateX en pourcentage de
+     SA propre largeur : la formule reste juste quelle que soit la largeur
+     de la capsule, y compris pendant qu'elle se rétracte. */
+  .onglets:has(#ongRoutine.on)::before{transform:translateX(100%)}
+  .onglets:has(#ongTend.on)::before{transform:translateX(200%)}
+  @supports not selector(:has(*)){
+    .onglets::before{display:none}
+    .onglets button.on{background:var(--verre-accent);
+                       box-shadow:inset 0 1px 0 rgba(255,255,255,.4),
+                                  0 3px 12px rgba(16,185,129,.4)}
+  }
+  .onglets button{position:relative;z-index:2;flex:1 1 0;min-width:0;
+                  display:flex;flex-direction:column;align-items:center;
+                  /* `justify-content:center` et un rembourrage vertical NUL :
+                     la capsule impose sa hauteur, le segment se contente de
+                     centrer ce qu'il contient dedans. Avec un rembourrage
+                     fixe, le repli au défilement écraserait l'icône contre le
+                     bord au lieu de simplement retirer le libellé. */
+                  justify-content:center;
+                  gap:3px;padding:0 2px;border:none;
+                  background:transparent;border-radius:99px;
+                  font-size:10.5px;font-weight:600;letter-spacing:-.005em;
+                  color:var(--doux);
+                  transition:color .3s var(--ressort)}
+  /* Le texte du segment actif passe en vert TRÈS sombre : sur un aplat
+     émeraude clair, le blanc passe sous le seuil de contraste alors que
+     l'œil le croit lisible. Même règle que le bouton principal des fiches. */
+  .onglets button.on{color:var(--sur-accent)}
+  .onglets button:active{transform:none}   /* la pastille porte déjà le retour */
+  /* Icônes : des SVG en MASQUE, pas des images de fond. La différence est
+     qu'un masque prend `currentColor` — l'icône vire au vert sombre en même
+     temps que son libellé quand la pastille arrive dessous, sans qu'on ait
+     deux jeux de fichiers à maintenir. Tracés à 1,7 px pour tenir le trait
+     des SF Symbols. */
+  .onglets button::before{content:'';width:21px;height:21px;flex:none;
+                          background:currentColor;
+                          -webkit-mask:var(--ico) center/contain no-repeat;
+                          mask:var(--ico) center/contain no-repeat}
+  #ongJournal{--ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 4.5A1.5 1.5 0 0 1 6.5 3H18a1 1 0 0 1 1 1v14.5'/%3E%3Cpath d='M5 4.5v13A1.5 1.5 0 0 0 6.5 19H19'/%3E%3Cpath d='M19 19v2H6.5A1.5 1.5 0 0 1 5 19.5'/%3E%3Cpath d='M8.5 7.5h7M8.5 11h7M8.5 14.5h4'/%3E%3C/svg%3E")}
+  #ongRoutine{--ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 8.5A5.5 5.5 0 0 1 9.5 3h5A5.5 5.5 0 0 1 20 8.5'/%3E%3Cpath d='M20 15.5A5.5 5.5 0 0 1 14.5 21h-5A5.5 5.5 0 0 1 4 15.5'/%3E%3Cpath d='M17 5.5 20 8.5 17 11.5'/%3E%3Cpath d='M7 18.5 4 15.5 7 12.5'/%3E%3C/svg%3E")}
+  #ongTend{--ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 4v15.5A1.5 1.5 0 0 0 5.5 21H21'/%3E%3Cpath d='M7.5 16.5 12 11l3 3 4.5-6'/%3E%3Cpath d='M19.5 8h-3.2M19.5 8v3.2'/%3E%3C/svg%3E")}
+  /* ── Rétrécissement au défilement ────────────────────────────────
+     Sur iOS 26 la tab bar se compacte dès que le contenu monte : les
+     libellés s'effacent, il ne reste que les icônes, la capsule se tasse — et
+     tout se détend quand on remonte. C'est le mouvement qui dit « l'écran
+     appartient au contenu, je ne fais que passer ».
+
+     Piloté par la POSITION de défilement et non par une durée :
+     `animation-timeline`, donc pas une ligne de JS, pas d'écouteur de
+     `scroll`, et une réversibilité exacte — on remonte de 20 px, la capsule
+     se détend d'exactement 20 px. Un écouteur de scroll aurait donné le même
+     rendu à l'aller et un ressort en retard au retour.
+
+     Trois animations sur la MÊME plage (30 → 110 px), et c'est la condition
+     pour que ça se lise comme un seul objet qui se replie plutôt que comme
+     trois choses qui bougent :
+       · la capsule perd 12 px de hauteur ;
+       · les libellés fondent à zéro ;
+       · le bouton d'ajout se tasse d'autant, pour rester du même gabarit que
+         la capsule à côté de laquelle il est posé. Sans lui, la capsule
+         maigrirait et le bouton resterait gros — le duo se déséquilibrerait
+         précisément au moment où on le regarde bouger.
+
+     Les hauteurs sont ÉCRITES et non déduites du contenu : c'est ce qui
+     garantit que capsule et bouton font la même taille aux deux extrémités
+     de l'animation. Déduite, la capsule aurait fait 62 px d'un côté et 42 de
+     l'autre, jamais les 54 du bouton.
+
+     Là où `animation-timeline` n'existe pas (Firefox aujourd'hui), rien ne se
+     replie : les libellés restent affichés et la capsule garde sa taille. On
+     perd un raffinement, jamais une fonction. */
+  @media (max-width:899px){
+    /* 🚫 LE REPLI DE LA CAPSULE DU BAS A ÉTÉ RETIRÉ — arbitrage de JB le
+       13/09/2026 : « bloque la réduction du menu en bas de page, je veux le
+       garder en grand ». Il y avait ici trois animations pilotées au
+       défilement (capsule qui perdait 12 px, libellés qui fondaient à zéro,
+       bouton d'ajout qui se tassait d'autant). Elles marchaient — mesurées :
+       54 → 44 px, libellés à `opacity:0`, les deux objets restant au même
+       gabarit. C'est un choix de goût, pas une correction de bug : JB a vu le
+       mouvement et n'en veut pas.
+       Ne pas confondre avec le repli de la BARRE DU HAUT, qui lui reste actif
+       (Large Title 92 → 54 px) et n'a pas été remis en cause.
+       Le jeton `--h-flot-min` n'est plus lu que par cette note ; il est
+       conservé au cas où la décision change, et n'a aucun effet tant que
+       personne ne le réutilise. */
+  }
+
+  /* ── Large Title iOS (mobile) ─────────────────────────────────────
+     iOS n'a pas de barre de titre à hauteur constante : il a un GRAND titre
+     posé en bas d'une zone haute, qui se replie en petit titre quand on
+     défile. C'est ce mouvement — et pas le matériau — qui fait qu'on
+     reconnaît un écran iOS au premier coup d'œil.
+
+     `position:fixed` et pas `sticky`, et c'est le point délicat : une barre
+     collante occupe de la place dans le flux, donc animer sa hauteur ferait
+     remonter tout le document pendant qu'on défile — le contenu défilerait
+     plus vite que le doigt, et sur une vue courte le navigateur écrêterait le
+     défilement en plein mouvement. Hors flux, la hauteur peut varier sans que
+     rien d'autre ne bouge, et c'est `main` qui réserve la place une fois pour
+     toutes avec la hauteur DÉPLIÉE.
+
+     `align-items:end` : les trois éléments se calent en bas de la zone. La
+     distance du titre au bord inférieur reste donc constante pendant le repli
+     — le titre ne se promène pas verticalement, il maigrit sur place. */
+  @media (max-width:899px){
+    /* `center` et non `end` : au repos la barre fait 92 px, repliée 54, et le
+       repli traverse toutes les valeurs intermédiaires. Caler les éléments sur
+       le BAS ne les aligne entre eux que si leurs hauteurs sont égales — or le
+       logo passe de 34 à 26 px et le titre de 30 à 17, pendant que le bouton
+       reste à 32. Centrés, ils restent alignés à chaque image de l'animation. */
+    /* ⚠️ C'est le rembourrage HAUT qui descend le contenu, pas le bas.
+       Avec `align-items:center`, le groupe se centre dans la BOÎTE DE CONTENU,
+       c'est-à-dire entre les deux rembourrages : en ajouter en bas rétrécit
+       cette boîte par le bas et REMONTE le contenu. L'erreur inverse a coûté
+       un aller-retour le 13/09/2026 — les trois éléments étaient parfaitement
+       alignés entre eux et décalés de 5 px vers le haut, tous ensemble.
+       18 px au repos donnent au Large Title son port légèrement bas ; 0 une
+       fois replié met le groupe pile au centre de la barre compacte. */
+    header{position:fixed;top:0;left:0;right:0;
+           height:calc(var(--h-bar) + env(safe-area-inset-top));
+           padding-top:calc(env(safe-area-inset-top) + 18px);
+           padding-bottom:0;
+           align-items:center}
+    header h1{font-size:30px;letter-spacing:-.033em;line-height:1.05}
+    main{padding-top:calc(var(--h-bar) + env(safe-area-inset-top))}
+    @supports (animation-timeline:scroll()){
+      /* Le rembourrage haut se résorbe AVEC la hauteur : c'est ce qui fait
+         passer le titre de « bas dans une grande barre » à « centré dans une
+         petite ». Les deux dans la même image-clé, sinon ils se décalent. */
+      @keyframes tasseBarre{
+        to{height:calc(var(--h-bar-min) + env(safe-area-inset-top));
+           padding-top:env(safe-area-inset-top)}}
+      @keyframes tasseTitre{to{font-size:17px;letter-spacing:-.01em}}
+      @keyframes tasseLogo{to{width:26px;height:26px}}
+      /* Même plage que l'apparition du verre (2→48 px) et NON celle de la tab
+         bar (30→110) : en haut d'écran le repli doit être fini avant que la
+         première carte n'arrive sous la barre. En bas, au contraire, la tab
+         bar a tout le temps — on ne la regarde pas. Deux plages différentes
+         parce que deux gestes différents, pas par négligence. */
+      header{animation:tasseBarre linear both;
+             animation-timeline:scroll(root block);
+             animation-range:2px 48px}
+      header h1{animation:tasseTitre linear both;
+                animation-timeline:scroll(root block);
+                animation-range:2px 48px}
+      header .logo{animation:tasseLogo linear both;
+                   animation-timeline:scroll(root block);
+                   animation-range:2px 48px}
+    }
+  }
+
+  /* Même conversion que les cartes de repas (voir « Liste groupée inset ») :
+     Routine et Tendances utilisaient cette classe avec le même défaut — un
+     titre EN-TÊTE À L'INTÉRIEUR d'un cadre bordé. La bordure saute, le titre
+     sort, et l'écart entre deux blocs passe de 11 à 18 px : dès qu'un intitulé
+     vit au-dessus d'une carte, il lui faut de l'air AU-DESSUS de lui, sinon il
+     se colle au bloc précédent et on ne sait plus lequel des deux il nomme. */
+  .bloc{background:var(--carte);border:none;border-radius:var(--r-l);
+        padding:15px 16px;margin-bottom:18px;box-shadow:var(--ombre)}
+  /* Conservé pour les blocs qui gardent un titre interne (aucun aujourd'hui,
+     mais la règle est bon marché et évite un h2 à 2 em si l'un réapparaît). */
   .bloc h2{font-size:11px;text-transform:uppercase;letter-spacing:.09em;
            color:var(--faible);font-weight:600;margin-bottom:12px}
   .bloc .note{color:var(--faible);font-size:11.5px;line-height:1.5;margin-top:11px}
 
   .ins{border-left:3px solid var(--bord);padding:2px 0 2px 11px;margin-bottom:13px}
   .ins:last-child{margin-bottom:0}
-  .ins.alerte{border-color:#c9584f}
+  .ins.alerte{border-color:var(--danger)}
   .ins.conseil{border-color:var(--accent)}
-  .ins.constat{border-color:#4a5563}
+  .ins.constat{border-color:#3c4256}
   .ins b{display:block;font-size:14.5px;font-weight:600;margin-bottom:4px;
          letter-spacing:-.01em}
-  .ins p{font-size:13px;line-height:1.5;color:#bcc7d4;margin:0}
+  .ins p{font-size:13px;line-height:1.55;color:#c3cad8;margin:0}
   .ins .act{display:block;margin-top:7px;font-size:12.5px;color:var(--accent);
             font-weight:500}
 
@@ -275,15 +1036,28 @@
      fonctionner hors ligne, et une dépendance CDN emporterait l'onglet avec
      elle le jour où elle tombe. */
   .graphe{width:100%;height:auto;display:block}
-  .graphe .b{fill:#33455a;transition:none}
+  .graphe .b{fill:#3a4157;transition:none}
   .graphe .b.atteint{fill:var(--ok)}
-  .graphe .b.sous{fill:var(--accent)}
-  .graphe .b.doute{fill:#2b3038}
-  .graphe .b.encours{fill:#3d4a5c}
+  /* Sous la cible = orange, cible atteinte = émeraude : exactement le codage
+     des jauges du résumé. Deux vues de la même journée doivent parler la même
+     langue, sinon il faut retenir deux légendes au lieu d'une.
+     L'orange est RABATTU ici, et pas ailleurs : une jauge fait 6 px de haut,
+     une barre de graphe en fait cent, et à pleine saturation quatorze d'entre
+     elles transforment l'onglet en mur d'alerte — alors qu'être sous sa cible
+     un mardi n'est pas un incident. Rabattu, il reste orange sans crier, et
+     c'est l'émeraude des jours atteints qui ressort. */
+  .graphe .b.sous{fill:#c96420}
+  .graphe .b.doute{fill:#272b3a}
+  .graphe .b.encours{fill:#4a5166}
   .graphe .b.vide{fill:none}
   .graphe .grille{stroke:rgba(255,255,255,.07);stroke-width:.8}
-  .graphe .cible{stroke:var(--warn);stroke-width:.9;stroke-dasharray:3 3;opacity:.8}
-  .graphe .etiqCible{fill:var(--warn);font-size:7px;opacity:.9}
+  /* La ligne de cible est une RÉFÉRENCE, pas une alerte : en orange elle se
+     confondait avec les barres qu'elle est censée arbitrer, et on ne voyait
+     plus où passait le seuil. Un blanc translucide se lit par-dessus tout et
+     ne prétend rien sur la journée. */
+  .graphe .cible{stroke:rgba(255,255,255,.3);stroke-width:.9;
+                 stroke-dasharray:3 3}
+  .graphe .etiqCible{fill:var(--doux);font-size:7px}
   .graphe .val{fill:var(--txt);font-size:8px;font-weight:600}
   .graphe .axe{fill:var(--faible);font-size:6.5px}
   /* Courbe de poids */
@@ -292,16 +1066,56 @@
   .graphe .proj{fill:none;stroke:var(--faible);stroke-width:1.4;
                 stroke-dasharray:4 4;opacity:.75}
   .graphe .pt{fill:var(--accent);stroke:var(--carte);stroke-width:1.6}
-  .leg i.cAtt{background:var(--ok)} .leg i.cSous{background:var(--accent)}
-  .leg i.cDoute{background:#2b3038;border:1px solid var(--bord)}
+  /* Deuxieme courbe : la masse MAIGRE, en kg, sur le MEME axe que le poids.
+     Premiere version essayee : le % de masse grasse sur un second axe a droite.
+     Abandonne le 14/09/2026 apres l'avoir vu tourner sur 4 pesees simulees —
+     deux axes ajustes separement rendent les pentes incomparables, et la courbe
+     bleue devalait l'ecran pour 4 points de variation. Il avait fallu ecrire
+     sous le graphe « compare le sens, pas la raideur » : un graphe qui a besoin
+     d'une notice pour ne pas tromper est un mauvais graphe.
+     En kg sur l'axe commun, plus rien a interpreter — et la BANDE entre les
+     deux courbes est litteralement la masse grasse, qui doit se resserrer.
+     Prix assume : l'axe descend jusqu'a la masse maigre (~70 kg), donc la
+     courbe de poids est plus plate qu'avec un axe a elle seule.
+     Un bleu franc : ni le vert de l'accent (deja le poids), ni l'orange (deja
+     « sous la cible » dans le graphe d'apport). */
+  .graphe .maigreL{fill:none;stroke:#60a5fa;stroke-width:1.8;
+                   stroke-linejoin:round;stroke-linecap:round}
+  .graphe .maigrePt{fill:#60a5fa;stroke:var(--carte);stroke-width:1.6}
+  /* Points SIMULES, en rouge vif. Demande de JB le 14/09/2026, apres que deux
+     pesees de demonstration ont ete inserees dans la base pour voir le rendu de
+     l'ecart entre les courbes : sans marque, rien ne les distinguait d'une
+     vraie mesure, et une donnee inventee qui a l'air vraie est pire qu'une
+     donnee absente. La regle est generique — elle vise `source='simulation'`,
+     pas ces deux lignes-la — donc toute donnee de demonstration future sortira
+     rouge sans qu'on ait a y repenser.
+     #ff3b30 (rouge systeme iOS) et pas --danger (#f0655c, rabattu) : ici on ne
+     veut justement PAS d'une couleur qui se fond dans la palette. */
+  .graphe .simu{fill:#ff3b30}
+  /* Barres d'erreur de l'impedancemetrie. Dessinees et pas seulement ecrites :
+     une marge en note de bas de page se lit une fois, une barre se voit a
+     chaque coup d'oeil — et ici elle est plus haute que la variation qu'elle
+     entoure, ce qui est exactement le message. Demande de JB le 14/09/2026
+     apres la recherche sur la fiabilite des balances a impedance. */
+  .graphe .marge{stroke:#60a5fa;stroke-width:1;opacity:.45;
+                 stroke-linecap:round}
+  .graphe .bandeGras{fill:#60a5fa;opacity:.10}
+  /* Même orange rabattu que les barres : une légende qui ne montre pas
+     exactement la couleur du graphe est pire qu'aucune légende. */
+  .leg i.cAtt{background:var(--ok)} .leg i.cSous{background:#c96420}
+  .leg i.cDoute{background:#272b3a;border:1px solid var(--bord)}
   .leg i.tRee{background:var(--accent)} .leg i.tProj{background:var(--faible)}
+  .leg i.tMaigre{background:#60a5fa}
+  .leg i.tBande{background:#60a5fa;opacity:.28}
+  .leg i.tSimu{background:#ff3b30}
+  .leg i.tMarge{background:#60a5fa;opacity:.45;width:3px;height:11px;border-radius:1px}
 
   /* ── Carte d'objectif ────────────────────────────────────────────────
      Traitée comme une couverture et pas comme un bloc parmi d'autres : c'est
      la seule question que JB pose vraiment, tout le reste de l'onglet en est
      la démonstration. */
   .bloc.heros{background:
-      radial-gradient(120% 140% at 0% 0%,rgba(88,166,255,.16),transparent 58%),
+      radial-gradient(120% 140% at 0% 0%,rgba(16,185,129,.15),transparent 58%),
       var(--carte);
       border-color:var(--bord-fort)}
   .grandChiffre{font-size:28px;font-weight:680;letter-spacing:-.03em;line-height:1.1}
@@ -310,17 +1124,29 @@
   /* Comparaison prévu / mesuré. Elle était noyée dans un paragraphe gris alors
      que l'écart entre les deux EST l'information. Deux colonnes, même gabarit :
      l'œil compare ligne à ligne sans avoir à lire. */
-  .duo{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:14px}
-  .duo>div{background:var(--surface);border:1px solid var(--bord);
-           border-radius:var(--r-m);padding:11px 12px}
+  /* Deux boîtes bordées DANS une carte, c'était une boîte dans une boîte —
+     le motif que la liste groupée supprime partout ailleurs. Elles deviennent
+     deux colonnes d'une même ligne, séparées par un filet vertical : c'est
+     ainsi qu'iOS pose deux mesures côte à côte (Forme, Santé). */
+  .duo{display:grid;grid-template-columns:1fr 1fr;gap:0;margin-top:0}
+  .duo>div{background:none;border:none;border-radius:0;padding:0 12px 0 0}
+  .duo>div+div{padding:0 0 0 14px;
+               box-shadow:inset 1px 0 0 var(--bord)}
   .duo .quoi{font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;
              color:var(--faible);font-weight:600;margin-bottom:6px}
   .duo .val{font-size:17px;font-weight:650;letter-spacing:-.02em;line-height:1.2}
   .duo .det{color:var(--doux);font-size:11.5px;margin-top:3px;line-height:1.4}
   .duo .absent{color:var(--faible);font-size:11.5px;line-height:1.45;font-weight:400}
-  .duo>div.ecart{border-color:rgba(224,104,95,.4);
-                 background:rgba(224,104,95,.07)}
-  .duo>div.ecart .val{color:#f0857c}
+  /* L'alerte d'écart ne peut plus être une BOÎTE TEINTÉE : depuis que le duo
+     est deux colonnes séparées d'un filet et non deux cartes, le fond rouge
+     n'avait plus ni coins ronds ni retrait — il bavait d'un bord à l'autre de
+     la colonne (regression introduite le 13/09/2026 en supprimant les boîtes,
+     visible sur la carte Objectif). Le signal passe donc par la COULEUR du
+     chiffre et de sa légende, ce qui est aussi la façon dont iOS signale un
+     état hors norme dans une ligne de statistique — et l'encart ⚠️ juste en
+     dessous porte déjà l'explication. */
+  .duo>div.ecart .val{color:#f5857c}
+  .duo>div.ecart .quoi,.duo>div.ecart .det{color:rgba(245,133,124,.72)}
   .h2val{float:right;text-transform:none;letter-spacing:0;font-weight:500;
          color:var(--doux)}
   /* Un conseil intercalé n'est pas une carte de plus : pas de titre, fond plus
@@ -331,7 +1157,7 @@
   .ins{position:relative;border-left:none;padding-left:34px}
   .ins::before{position:absolute;left:0;top:1px;width:23px;height:23px;
                border-radius:7px;display:grid;place-items:center;font-size:12px}
-  .ins.alerte::before{content:"!";background:rgba(224,104,95,.16);color:#f0857c;
+  .ins.alerte::before{content:"!";background:var(--danger-sourd);color:#f5857c;
                       font-weight:700}
   .ins.conseil::before{content:"→";background:var(--accent-sourd);color:var(--accent)}
   .ins.constat::before{content:"i";background:rgba(255,255,255,.07);
@@ -346,22 +1172,68 @@
      était une carte flottante : un dîner de quatre lignes produisait quatre
      objets identiques sans lien visible entre eux, et la hiérarchie repas →
      aliments n'existait que dans l'espacement. */
-  .repasCarte{background:var(--carte);border:1px solid var(--bord);
-              border-radius:var(--r-l);margin-bottom:11px;overflow:hidden;
+  /* ── Liste groupée « inset » (iOS) ────────────────────────────────
+     Quatre détails font qu'on reconnaît une liste iOS, et aucun n'est
+     décoratif — ce sont eux qui disent « ceci est une liste » plutôt que
+     « ceci est une suite de cartes ». Mis en place le 13/09/2026.
+       1. L'INTITULÉ DE GROUPE EST DEHORS. Il était en bande grisée dans la
+          carte, ce qui en faisait un en-tête de tableau. Dehors, il devient
+          ce qu'il est : une étiquette qui nomme le paquet en dessous.
+       2. LES SÉPARATEURS SONT DÉCALÉS À GAUCHE, alignés sur le texte et pas
+          sur le bord de la carte. C'est le détail le plus caractéristique, et
+          il a une raison : le séparateur sépare des LIGNES, pas la carte. Un
+          filet qui va d'un bord à l'autre découpe le conteneur en tranches ;
+          décalé, il se lit comme une respiration entre deux entrées. Fait en
+          `background-image` et non en `border-top` : une bordure ne sait pas
+          s'arrêter avant le bord, il aurait fallu un pseudo-élément par ligne.
+       3. PAS DE BORDURE sur la carte. Une liste iOS est un aplat posé sur le
+          fond, pas un cadre dessiné autour d'un contenu.
+       4. TYPOGRAPHIE PLUS AÉRÉE : 16,5 px pour le nom au lieu de 14,5. La
+          densité web fait tenir plus de lignes ; iOS préfère qu'on lise la
+          bonne du premier coup. */
+  .repasCarte{background:var(--carte);border:none;
+              border-radius:var(--r-l);margin-bottom:18px;overflow:hidden;
               box-shadow:var(--ombre)}
-  .repasHaut{display:flex;justify-content:space-between;align-items:baseline;
-             padding:11px 15px;background:rgba(255,255,255,.022);
-             border-bottom:1px solid var(--bord);
-             font-size:11px;text-transform:uppercase;letter-spacing:.09em;
+  /* L'intitulé de groupe, désormais HORS de la carte. Reprend les valeurs de
+     `.sect`, qui décrivait déjà exactement ça et n'était plus utilisée. */
+  /* ⚠️ Un `::before` sur le bloc de conseil NE marche pas pour l'aligner sur
+     la carte d'à côté : il grandit le bloc et descend son texte, sans déplacer
+     son bord supérieur d'un pixel. Essayé le 13/09/2026, l'écart restait à
+     24,3 px. L'espace doit être AU-DESSUS du bloc, pas dedans — d'où le
+     `.sect` vide que `conseil()` émet désormais, qui donne au conseil la même
+     charpente qu'un graphe : les deux colonnes s'alignent alors d'elles-mêmes,
+     sans compensation à maintenir. */
+  .repasHaut,.sect{display:flex;justify-content:space-between;align-items:baseline;
+             padding:0 4px 7px;margin:0;background:none;border:none;
+             font-size:11.5px;text-transform:uppercase;letter-spacing:.075em;
              font-weight:600;color:var(--faible)}
-  .repasHaut .kc{text-transform:none;letter-spacing:0;font-size:12px;
+  .repasHaut .kc,.sect .kc{text-transform:none;letter-spacing:0;font-size:12.5px;
                  font-weight:500;color:var(--doux)}
-  .repasCarte .ligne + .ligne{border-top:1px solid var(--bord)}
+  .repasGrp{margin-bottom:4px}
+  /* L'intitulé vide d'un conseil n'a de rôle qu'en desktop, où il aligne la
+     colonne de droite sur celle de gauche. En colonne unique il ne ferait
+     qu'un trou de 24 px avant chaque conseil. */
+  .conseilGrp > .sect{display:none}
+  @media (min-width:900px){
+    .conseilGrp > .sect{display:flex}
+    /* Sauf le tout premier : il commente la carte Objectif, qui n'a PAS
+       d'intitulé extérieur. Lui en donner un le décalerait de 24 px vers le
+       bas — l'erreur exactement inverse de celle qu'on corrige. Le sélecteur
+       vise la structure (« le conseil qui suit le hero ») et non un rang, donc
+       il tient si l'ordre des blocs change. */
+    #tendCorps > .bloc.heros + .conseilGrp > .sect{display:none}
+  }
+  /* Séparateur décalé : 1 px tracé à partir de 15 px du bord gauche. */
+  .repasCarte .ligne + .ligne{
+    background-image:linear-gradient(var(--bord),var(--bord));
+    background-repeat:no-repeat;
+    background-size:calc(100% - 15px) 1px;
+    background-position:15px 0}
 
   .ligne{display:flex;justify-content:space-between;align-items:center;gap:10px;
-         padding:12px 15px;background:none;border:none;border-radius:0;
+         padding:13px 15px;background:none;border:none;border-radius:0;
          margin:0;box-shadow:none}
-  .ligne b{font-weight:500;font-size:14.5px;letter-spacing:-.005em}
+  .ligne b{font-weight:500;font-size:16.5px;letter-spacing:-.014em}
   /* Zone de frappe portée à 44 px (recommandation Apple) sans grossir le glyphe :
      c'est le padding qui s'étend, pas le « × ». Un bouton de 20 px se rate une
      fois sur trois au pouce, et ici le rater veut dire supprimer la mauvaise
@@ -381,11 +1253,11 @@
                  border-left:3px solid var(--bord-fort)}
   .ligne.attente>div:first-child{opacity:.55}
   .ligne.attente b{font-style:italic}
-  .tag.att{color:var(--warn);border-color:rgba(214,162,56,.35);
-           background:rgba(214,162,56,.09)}
+  .tag.att{color:var(--orange-clair);border-color:var(--orange-bord);
+           background:var(--orange-sourd)}
   .ligne .act{display:flex;align-items:center;gap:2px;flex:0 0 auto;margin-right:-8px}
-  .ligne .ok{background:var(--accent-sourd);color:var(--accent);border:1px solid
-             rgba(88,166,255,.35);border-radius:99px;font-size:13px;font-weight:600;
+  .ligne .ok{background:var(--accent-sourd);color:var(--accent-clair);border:1px solid
+             var(--accent-bord);border-radius:99px;font-size:13px;font-weight:600;
              padding:0 13px;min-height:36px;cursor:pointer}
   .ligne .ok:active{filter:brightness(1.2)}
   /* Le « 📌 » marque une ligne comme plat récurrent. Même zone de frappe que la
@@ -393,16 +1265,60 @@
   .pin{background:none;border:none;color:var(--faible);font-size:14px;
        min-width:40px;min-height:44px;margin:-11px 0;cursor:pointer;opacity:.6}
   .pin:active{opacity:1}
-  .recToggle{display:flex;align-items:center;gap:9px;margin:2px 0 14px;
+  .recToggle{display:flex;align-items:center;gap:10px;margin:2px 0 14px;
              color:var(--doux);font-size:13px;cursor:pointer}
-  .recToggle input{width:18px;height:18px;accent-color:var(--accent);margin:0}
+  /* Case à cocher redessinée. `accent-color` ne teinte QUE l'état coché :
+     décochée, la case restait le rectangle blanc du système, c'est-à-dire
+     l'objet le plus lumineux d'une fiche en verre sombre — l'œil y allait
+     avant d'aller au nom du plat. Elle devient un creux, comme les champs de
+     saisie, et se remplit du même verre émeraude que tout ce qui est
+     sélectionné ailleurs. */
+  .recToggle input{appearance:none;-webkit-appearance:none;
+             width:22px;height:22px;flex:none;margin:0;border-radius:7px;
+             border:1px solid rgba(255,255,255,.18);
+             background:var(--champ-verre);box-shadow:var(--champ-creux);
+             display:grid;place-items:center;cursor:pointer;
+             transition:background .22s var(--ressort),
+                        border-color .22s var(--ressort)}
+  /* Le crochet est dessiné en bordures plutôt qu'en glyphe : un « ✓ » de
+     police change de forme et de chasse d'un système à l'autre, et se
+     retrouve décentré dans la case une fois sur deux. */
+  .recToggle input::after{content:'';width:10px;height:5.5px;
+             border-left:2px solid var(--sur-accent);
+             border-bottom:2px solid var(--sur-accent);
+             transform:rotate(-45deg) translate(1px,-1px);
+             opacity:0;transition:opacity .16s ease}
+  .recToggle input:checked{background:var(--verre-accent);
+             border-color:rgba(255,255,255,.3);
+             box-shadow:inset 0 1px 0 rgba(255,255,255,.4),
+                        0 2px 8px rgba(16,185,129,.3)}
+  .recToggle input:checked::after{opacity:1}
+  .recToggle input:focus-visible{outline:2px solid var(--accent);
+             outline-offset:2px}
   /* Fiche de gestion des récurrents */
-  .recItem{list-style:none;background:var(--surface);border:1px solid var(--bord);
-           border-radius:var(--r-m);padding:11px 13px;margin-bottom:7px}
+  /* Les plats en routine étaient des CARTES FLOTTANTES, une par plat. C'est le
+     défaut déjà corrigé sur le journal — cinq plats faisaient cinq objets
+     identiques sans lien visible, et rien ne disait qu'ils formaient un
+     ensemble. Ils deviennent des lignes d'une liste groupée, avec le même
+     séparateur décalé à 15 px : une seule carte, cinq entrées. Corrigé le
+     13/09/2026, par cohérence avec le journal et pas pour l'ornement. */
+  .recListe{list-style:none;padding:0;margin:0;background:var(--carte);
+            border-radius:var(--r-l);overflow:hidden;box-shadow:var(--ombre)}
+  .recItem{list-style:none;background:none;border:none;
+           border-radius:0;padding:13px 15px;margin:0}
+  .recItem + .recItem{
+    background-image:linear-gradient(var(--bord),var(--bord));
+    background-repeat:no-repeat;
+    background-size:calc(100% - 15px) 1px;
+    background-position:15px 0}
   .recItem.off{opacity:.5}
-  .recItem .rang{display:flex;align-items:center;gap:8px;margin-top:8px}
+  /* `wrap` : quatre contrôles (portion, repas, pause, retrait) ne tiennent pas
+     sur une ligne de 360 px. Sans lui, le dernier sortait de la carte —
+     exactement le défaut déjà corrigé sur le rail d'actions rapides. */
+  .recItem .rang{display:flex;align-items:center;gap:8px;margin-top:8px;
+                 flex-wrap:wrap}
   .recItem input{width:74px;padding:8px;font-size:16px;text-align:center;
-                 border-radius:8px;border:1px solid var(--bord);background:var(--bg);
+                 border-radius:var(--r-s);border:1px solid rgba(255,255,255,.1);background:var(--champ-verre);
                  color:var(--txt);-moz-appearance:textfield;appearance:textfield}
   .recItem input::-webkit-outer-spin-button,.recItem input::-webkit-inner-spin-button{
                  -webkit-appearance:none;margin:0}
@@ -410,32 +1326,132 @@
                         border:1px solid var(--bord);background:var(--carte);
                         color:var(--doux);margin-left:auto}
 
-  dialog{border:none;border-radius:20px;background:var(--carte);color:var(--txt);
-         padding:22px;width:min(360px,92vw);border:1px solid var(--bord);
-         box-shadow:0 24px 60px rgba(0,0,0,.6);
-         animation:monte .22s var(--sortie)}
-  dialog::backdrop{background:rgba(0,0,0,.62);
-                   -webkit-backdrop-filter:blur(5px);backdrop-filter:blur(5px)}
-  @keyframes monte{from{opacity:0;transform:translateY(14px) scale(.97)}}
+  /* ── Marque « en routine » ───────────────────────────────────────────
+     Le 🔁 dit un ÉTAT, le 📌 déclenche une ACTION. Les confondre en un seul
+     glyphe — ce que faisait l'app, qui n'affichait que l'épingle — laissait
+     deux questions sans réponse : « est-ce que ce plat revient tous les
+     jours ? » et « qu'est-ce qui se passe si j'appuie ? ». D'où deux signes
+     distincts, et l'épingle qui disparaît une fois le plat en routine : il
+     n'y a plus rien à épingler. */
+  .routine{font-size:12px;margin-left:6px;vertical-align:1px;
+           opacity:.85;cursor:help;font-style:normal}
+  /* Le crayon corrige une ligne déjà posée. Même gabarit de frappe que
+     l'épingle : c'est un geste du même rang, rare mais pas exceptionnel. */
+  .modif{background:none;border:none;color:var(--faible);font-size:14px;
+         min-width:40px;min-height:44px;margin:-11px 0;cursor:pointer;opacity:.6}
+  .modif:active{opacity:1}
+
+  /* ── Onglet Routine ──────────────────────────────────────────────────
+     La gestion des plats récurrents vivait dans une boîte de dialogue ouverte
+     depuis la feuille d'ajout : deux niveaux de profondeur pour une liste
+     qu'on vient consulter, et aucun endroit pour en AJOUTER un. Un onglet la
+     met au même rang que le journal et les tendances — c'est une des trois
+     choses que l'app sait faire, pas un réglage. */
+  #rtCorps{max-width:780px}
+  .rtTete{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+  /* Capsule comme tous les autres boutons d'action : `--r-m` en faisait le
+     seul coin arrondi « à l'ancienne » d'un écran par ailleurs entièrement
+     en capsules. */
+  .rtTete .prim{flex:0 0 auto;padding:11px 17px;border-radius:99px;border:none;
+                font-size:14px;font-weight:600;margin-left:auto}
+  .recItem .rang select{padding:8px 9px;border-radius:var(--r-s);font-size:14px;
+                        border:1px solid rgba(255,255,255,.1);background:var(--champ-verre);
+                        color:var(--txt)}
+  /* La suppression définitive est en dernier et en rouge sourd : elle ne se
+     confond pas avec « mettre en pause », qui est le geste courant. */
+  .recItem .rang .sup{margin-left:0;color:var(--danger);
+                      border-color:var(--danger-bord)}
+  .recItem .rang .pause{margin-left:auto}
+
+  /* Fiches : du verre épais, très arrondi. Le rayon monte à 28 px — le
+     « continuous corner » d'iOS 26 n'est pas un arrondi de plus, c'est ce qui
+     fait qu'une surface a l'air taillée dans un bloc plutôt que découpée aux
+     ciseaux. La teinte est plus dense que celle des barres (--verre-fond-FORT)
+     parce qu'une fiche porte du texte de saisie : sous 0,8 d'opacité, un
+     chiffre en gras se met à vibrer sur ce qui défile derrière. */
+  dialog{border-radius:28px;background:var(--verre-fond-fort);color:var(--txt);
+         padding:22px;width:min(360px,92vw);
+         border:1px solid rgba(255,255,255,.14);
+         box-shadow:var(--verre-liseret),0 28px 70px rgba(0,0,0,.62),
+                    0 4px 14px rgba(0,0,0,.4);
+         animation:monte .34s var(--ressort)}
+  /* Le voile s'ALLÈGE (0,62 → 0,42) alors qu'on aurait pu croire l'inverse :
+     c'est lui qui donne au verre de la fiche quelque chose à réfracter. Un
+     voile presque noir et la fiche redevient une carte grise posée sur du
+     noir — tout le travail de matière au-dessus ne se verrait plus. Le flou,
+     lui, double : c'est ce qui garde le texte lisible malgré le voile clair. */
+  dialog::backdrop{background:rgba(6,7,11,.42);
+                   -webkit-backdrop-filter:blur(11px) saturate(130%);
+                   backdrop-filter:blur(11px) saturate(130%);
+                   animation:voile .3s ease both}
+  @keyframes voile{from{opacity:0}}
+  @keyframes monte{from{opacity:0;transform:translateY(18px) scale(.94)}}
   /* Respect de « réduire les animations » : une préférence système ignorée est
      un défaut d'accessibilité, pas un détail de style. */
   @media (prefers-reduced-motion:reduce){
     *,*::before,*::after{animation-duration:.01ms !important;
                          transition-duration:.01ms !important}
+    /* Une animation pilotée par le défilement n'a pas de durée : la ligne
+       ci-dessus ne l'atteint pas. Il faut lui retirer sa timeline, sinon la
+       tab bar continue de se compacter sous le doigt de quelqu'un qui a
+       justement demandé que rien ne bouge. */
+    .onglets button span{animation-timeline:none !important;
+                         animation-name:none !important}
   }
-  #g{width:100%;padding:15px;font-size:26px;text-align:center;border-radius:11px;
-     border:1px solid var(--bord);background:var(--bg);margin:14px 0 4px;
+  #g,#eG{width:100%;padding:15px;font-size:26px;text-align:center;border-radius:var(--r-m);
+     border:1px solid rgba(255,255,255,.1);background:var(--champ-verre);margin:14px 0 4px;
+     letter-spacing:-.02em;font-weight:600;
+     transition:border-color .15s ease,box-shadow .15s ease;outline:none;
      -moz-appearance:textfield;appearance:textfield}
-  #g::-webkit-outer-spin-button,#g::-webkit-inner-spin-button{
+  #g::-webkit-outer-spin-button,#g::-webkit-inner-spin-button,
+  #eG::-webkit-outer-spin-button,#eG::-webkit-inner-spin-button{
      -webkit-appearance:none;margin:0}
+  /* 16 px minimum : en dessous, iOS zoome à la mise au point et décadre la
+     fiche — même contrainte que le formulaire « aliment maison ». */
+  #eNom{width:100%;padding:12px;font-size:16px;border-radius:var(--r-s);
+        border:1px solid rgba(255,255,255,.1);background:var(--champ-verre);margin:12px 0 2px}
+  /* Capsules et non plus rectangles : dans une fiche de verre, un coin droit
+     est le seul détail qui trahit un composant dessiné ailleurs. */
   .presets{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin:10px 0 16px}
-  .presets button{padding:11px 0;border-radius:9px;font-size:15px;
-                  border:1px solid var(--bord);background:var(--bg);color:var(--doux)}
-  .presets button:active{border-color:var(--accent);color:var(--txt)}
+  .presets button{padding:11px 0;border-radius:99px;font-size:15px;
+                  border:1px solid rgba(255,255,255,.09);
+                  background:rgba(255,255,255,.05);color:var(--doux);
+                  box-shadow:inset 0 1px 0 rgba(255,255,255,.1)}
+  .presets button:active{border-color:var(--accent-bord);color:var(--txt);
+                         background:var(--accent-sourd)}
   .actions{display:flex;gap:9px}
-  .actions button{flex:1;padding:14px;border-radius:11px;border:none;font-size:16px;font-weight:500}
-  .prim{background:var(--accent);color:#06121c}
-  .sec{background:var(--bord);color:var(--txt)}
+  .actions button{flex:1;padding:14px;border-radius:99px;border:none;
+                  font-size:16px;font-weight:600;letter-spacing:-.01em}
+  /* Le bouton principal est le seul aplat d'émeraude plein de l'interface :
+     c'est ce qui le rend impossible à confondre avec autre chose. Texte vert
+     très sombre plutôt que blanc — sur un aplat clair, le blanc passe sous le
+     seuil de contraste alors que l'œil le croit lisible. */
+  .prim{background:var(--verre-accent);
+        color:var(--sur-accent);
+        box-shadow:inset 0 1px 0 rgba(255,255,255,.4),
+                   0 4px 16px rgba(16,185,129,.34)}
+  /* `--bord` est un blanc à 7,5 % : posé en fond de bouton il ne se voyait
+     pas, et « Annuler » ressemblait à du texte flottant. Une surface pleine
+     avec un liseré, donc — secondaire ne veut pas dire invisible. Sur du
+     verre, cette surface pleine devient elle-même un blanc translucide :
+     c'est la seule façon de rester lisible quel que soit ce qui défile
+     derrière la fiche. */
+  .sec{background:rgba(255,255,255,.09);color:var(--doux);
+       box-shadow:inset 0 0 0 1px rgba(255,255,255,.12),
+                  inset 0 1px 0 rgba(255,255,255,.16)}
+  /* Creux commun à tous les champs. Une ombre INTERNE et non un liseré :
+     posée sur du verre, elle donne à la saisie l'air d'être enfoncée dans la
+     surface, là où un cadre la ferait flotter par-dessus. */
+  #g,#eG,#eNom,#mNom,#dlgM .grille input,#mPoids,.recItem input,
+  .recItem .rang select{box-shadow:var(--champ-creux)}
+  /* Anneau de focus commun. Seul #q l'avait ; partout ailleurs la mise au
+     point ne se voyait pas, ce qui se paie surtout au clavier — on ne sait
+     pas dans quel champ on écrit. Le creux est conservé DANS l'anneau :
+     sans lui, le champ remonte d'un cran à la mise au point. */
+  input:focus,select:focus{outline:none;border-color:var(--accent);
+        box-shadow:var(--champ-creux),0 0 0 3px var(--accent-sourd)}
+  button:focus-visible,a:focus-visible{outline:2px solid var(--accent);
+        outline-offset:2px}
   .apercu{color:var(--doux);font-size:13px;text-align:center;min-height:19px}
   .vide{color:var(--doux);text-align:center;padding:26px 10px;font-size:14px}
 
@@ -446,15 +1462,15 @@
      Le sélecteur de mode réutilise .repas (deux colonnes au lieu de quatre). */
   #dlgM{width:min(400px,94vw)}
   #dlgM #mMode{grid-template-columns:repeat(2,1fr)}
-  #mNom{width:100%;padding:12px;font-size:16px;border-radius:10px;
-        border:1px solid var(--bord);background:var(--bg);margin:12px 0 2px}
+  #mNom{width:100%;padding:12px;font-size:16px;border-radius:var(--r-s);
+        border:1px solid rgba(255,255,255,.1);background:var(--champ-verre);margin:12px 0 2px}
   #mPoidsLigne{display:block;margin:8px 0 2px}
   .grille{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0 10px}
   .grille label:first-child{grid-column:1 / -1}   /* les kcal sur toute la largeur */
   #dlgM label{display:block}
   #dlgM label .meta{display:block;margin-bottom:3px;font-size:11.5px}
   #dlgM .grille input,#mPoids{width:100%;padding:11px;font-size:16px;
-        border-radius:9px;border:1px solid var(--bord);background:var(--bg);
+        border-radius:var(--r-s);border:1px solid rgba(255,255,255,.1);background:var(--champ-verre);
         -moz-appearance:textfield;appearance:textfield}
   /* 16px minimum sur les champs : en dessous, iOS zoome à la mise au point et
      l'utilisateur se retrouve avec un formulaire décadré. */
@@ -463,6 +1479,15 @@
   #dlgM .grille label:first-child input{font-size:22px;text-align:center;padding:13px}
   #res .del{background:none;border:none;color:var(--doux);font-size:19px;
             line-height:1;padding:0 2px;margin-left:6px}
+
+  /* ── Respiration intermédiaire ──────────────────────────────────────
+     Entre le téléphone et le bureau, seule la gouttière change : 18 px au
+     pouce sur un écran de 360 px, ce n'est pas la même chose que 18 px sur
+     une tablette de 800 px, où le contenu paraît collé aux bords. Trois
+     variables rouvertes, aucune règle de mise en page dupliquée. */
+  @media (min-width:600px){
+    :root{--pad-x:26px; --pad-y:22px}
+  }
 
   /* ══════════════════════════════════════════════════════════════════
      DESKTOP — additif, à partir de 900 px
@@ -483,24 +1508,55 @@
   @media (min-width:900px){
 
     /* ── Cadre commun : borné et centré ──────────────────────────── */
-    header,main{max-width:1180px;margin-left:auto;margin-right:auto}
-    header{padding:28px 22px 15px}
-    h1{font-size:23px}
-    /* Les onglets ne s'étirent plus sur toute la largeur : deux boutons
-       de 700 px de large ne se lisent pas comme des onglets, et le fond
-       de la barre qui les porte encore moins. On leur donne la largeur
-       de leur contenu, alignée sur le bord gauche de la colonne — d'où
-       le `max()` : au-delà de 1180 px le contenu est centré et son bord
-       gauche vaut (50% − 590px + 22px) ; en dessous, il colle au
-       rembourrage de 22 px comme le reste. Même formule que le bouton
-       d'ajout, pour que les deux tombent sur les mêmes verticales. */
-    .onglets{width:max-content;max-width:none;
-             grid-template-columns:repeat(2,152px);
-             margin:0 0 20px max(22px,calc(50% - 590px + 22px))}
-    /* Le grand rembourrage du bas servait à ne pas cacher la dernière
-       ligne sous le bouton flottant ; celui-ci ne flotte plus au-dessus
-       du contenu ici. */
-    main{padding:0 22px 64px}
+    /* Plus rien à redéclarer ici : la colonne (largeur bornée + marges
+       automatiques) est portée par la règle de base, et le desktop ne
+       fait qu'ouvrir la gouttière. C'est la version mobile qui reste la
+       source unique de la mise en page. */
+    /* --h-barre : hauteur EXACTE de la barre du haut. Elle est imposée
+       plutôt que déduite du contenu, et c'est délibéré : deux éléments
+       collants viennent s'aligner dessous (la capsule d'onglets et la
+       carte de résumé), et un `top` sticky ne sait pas lire la hauteur
+       d'un voisin. Une hauteur devinée ici, c'est un chevauchement au
+       premier changement de titre. */
+    :root{--pad-x:34px; --pad-y:32px; --h-barre:88px}
+    header{height:var(--h-barre);padding-top:0;padding-bottom:0;
+           align-content:center}
+    h1{font-size:29px;letter-spacing:-.035em}
+    header .logo{width:40px;height:40px}
+    header .jour{font-size:13px}
+
+    /* ── Capsule d'onglets : elle remonte en haut ────────────────── */
+    /* Sur iPad et sur Mac, iOS 26 ne met pas la tab bar en bas : elle
+       se pose sous la barre de titre, en capsule, alignée à gauche.
+       C'est la bonne lecture ici aussi — à la souris on ne vise pas au
+       pouce, et le bas de l'écran est loin du regard. Elle reste
+       COLLANTE et en verre : le contenu continue de défiler dessous,
+       ce qui est tout l'intérêt.
+       Les décalages `left`/`right`/`bottom` du mobile sont explicitement
+       remis à `auto` — en `position:sticky` ils ne seraient pas ignorés
+       mais interprétés comme des décalages, et la capsule partirait de
+       travers. Le `:has()` qui la rétracte pour le bouton d'ajout est
+       neutralisé au passage : ici le bouton est ailleurs. */
+    .onglets,body:has(#ongJournal.on) .onglets{
+             position:sticky;top:calc(var(--h-barre) + 12px);
+             left:auto;right:auto;bottom:auto;z-index:45;
+             width:max-content;
+             margin:0 0 22px max(var(--pad-x),
+                     calc(50% - var(--largeur) / 2 + var(--pad-x)))}
+    /* Largeur FIXE par segment, et pas `max-content` : la pastille qui
+       glisse se déplace d'exactement un tiers de la capsule, ce qui
+       suppose trois segments égaux. Avec des largeurs dictées par le
+       texte, « Tendances » décalerait la pastille de « Routine ». */
+    .onglets button{flex:0 0 148px;flex-direction:row;justify-content:center;
+                    gap:8px;padding:9px 0;font-size:14px}
+    .onglets button::before{width:18px;height:18px}
+    /* Pas de rétrécissement au défilement ici : les libellés d'une barre
+       du haut ne gênent personne, et l'espace vertical n'est pas la
+       ressource rare sur un écran de bureau. */
+    .onglets button span{animation:none;font-size:14px;opacity:1}
+    /* Le grand rembourrage du bas servait à dégager la capsule flottante ;
+       elle est passée en haut, il ne reste que le bouton d'ajout. */
+    main{padding-bottom:96px}
 
     /* ── Journal : deux colonnes ─────────────────────────────────── */
     /* L'ordre du DOM (résumé, navigation, repas) ne change pas — c'est
@@ -518,7 +1574,24 @@
     #vueJournal:not([hidden]){display:grid;align-items:start;column-gap:24px;
                 grid-template-columns:minmax(0,1fr) 336px;
                 grid-template-areas:"nav resume" "repas resume"}
-    #vueJournal .resume.heros{grid-area:resume;position:sticky;top:20px;
+    /* Le résumé vit dans un WRAPPER (.repasGrp) émis par le mobile, pas à
+       nu dans la grille : le placer lui-même en `grid-area:resume` laissait
+       son wrapper en `auto`, et l'algorithme le rangeait dans la première
+       cellule libre — « nav/resume » est pris par la nav, il tombait donc
+       dans « repas/resume » et POUSSAIT la liste des repas 320 px plus bas
+       (mesuré le 14/09/2026 : #lignes à 541 px au lieu de 220). On place le
+       wrapper, pas la carte. Son intitulé « Bilan du jour » ne se voit qu'en
+       colonne unique : en desktop, la grille n'a pas besoin de ce label et
+       la carte gagne sa place. */
+    #vueJournal > .repasGrp{grid-area:resume}
+    #vueJournal > .repasGrp > .repasHaut{display:none}
+    /* Le `top` n'est plus 20 px mais la hauteur de la barre du haut plus
+       une respiration : la barre est devenue COLLANTE et en verre, et une
+       carte qui se fige à 20 px du bord haut irait donc se ranger DERRIÈRE
+       elle — le solde, c'est-à-dire la seule chose qu'on vient chercher,
+       disparaîtrait au premier défilement sous un verre dépoli. */
+    #vueJournal .resume.heros{position:sticky;
+                              top:calc(var(--h-barre) + 16px);
                               margin-bottom:0}
     #vueJournal .nav{grid-area:nav;margin:0 0 14px}
     #vueJournal #lignes{grid-area:repas;min-width:0}
@@ -542,12 +1615,66 @@
        légende deviendrait un contresens. Un graphe étiré sur 1900 px
        est illisible de toute façon : ses points s'écartent, ses
        étiquettes non. */
-    /* On borne le CONTENU, pas le <main> : le main reste la colonne
-       centrée de 1180 px commune aux deux onglets, et les blocs
-       démarrent donc sur la même verticale que le journal. Centrer
-       #vueTend lui-même le décalait de 178 px vers la droite, et tout
-       sautait latéralement à chaque changement d'onglet. */
-    #tendCorps{max-width:780px}
+    /* ── Tendances en deux colonnes ───────────────────────────────
+       Le contenu alterne DÉJÀ un bloc puis le conseil qui le commente :
+       objectif/conseil, poids/conseil, apport/conseil, protéines/conseil,
+       fiabilité/conseil. En colonne unique cette structure en paires est
+       perdue — on lit un graphe, puis on descend pour lire ce qu'il raconte,
+       et à la hauteur d'un écran de retard on ne les relie plus. Côte à côte,
+       chaque paire se lit d'un coup. La grille se contente de suivre l'ordre
+       du DOM : rien à réordonner en JS, et si un conseil manque (il n'y en a
+       que 3 à 5 par nuit) la paire suivante remonte d'elle-même.
+
+       La colonne de gauche est la plus large — un graphe a besoin d'abscisse,
+       un paragraphe de 60 caractères se lit mieux étroit que large.
+
+       Le plafond de 780 px est levé : il bridait le contenu à deux tiers de la
+       colonne et laissait la moitié droite d'un 1440 vide. On garde la borne
+       commune du <main>, qui aligne Tendances sur la verticale du journal —
+       c'était la vraie raison de cette règle, et elle est déjà assurée par
+       `main` lui-même. */
+    /* ── Routine : une ligne de réglages par plat ─────────────────
+       Sur mobile les quatre contrôles (portion, repas, pause, retrait) passent
+       à la ligne — `flex-wrap`, sans quoi le dernier sortait de la carte sur
+       360 px. Cette règle restait active en desktop : chaque plat y occupait
+       **117 px de haut** pour un contenu qui tient sur une ligne, et les
+       boutons flottaient au milieu d'un vide de 750 px à cause du
+       `margin-left:auto` qui les poussait à droite d'une rangée pleine largeur.
+
+       En grille, l'identité occupe la colonne souple à gauche (nom sur une
+       ligne, chiffres dessous) et les contrôles une colonne AUTO à droite. Le
+       point qui fait l'ergonomie n'est pas le gain de hauteur mais l'ALIGNEMENT
+       VERTICAL : des largeurs fixes sur les quatre contrôles les font tomber
+       sur les mêmes verticales d'un plat à l'autre, donc on vise « Retirer »
+       sans relire la ligne. Des largeurs dictées par le texte (« Pause » vs
+       « Reprendre », « Goûter » vs « Matin ») décaleraient chaque rangée.
+       C'est la forme d'une liste de réglages iOS sur grand écran : libellé à
+       gauche, valeur et contrôle alignés à droite. */
+    #rtCorps{max-width:none}
+    .recItem{display:grid;grid-template-columns:minmax(0,1fr) auto;
+             grid-template-areas:"nom rang" "meta rang";
+             align-items:center;column-gap:22px;padding:11px 16px}
+    .recItem > .nom{grid-area:nom}
+    .recItem > .meta{grid-area:meta}
+    .recItem .rang{grid-area:rang;margin-top:0;flex-wrap:nowrap;
+                   justify-content:flex-end}
+    /* `auto` poussait le 1er bouton à l'extrémité d'une rangée pleine largeur.
+       Dans une colonne dimensionnée par son contenu, il n'a plus lieu d'être. */
+    .recItem .rang button{margin-left:0}
+    .recItem input{width:66px}
+    .recItem .rang select{min-width:106px}
+    .recItem .rang .pause{min-width:92px}
+    .recItem .rang .sup{min-width:80px}
+    /* Le texte d'explication ne doit pas s'étirer sur 1120 px : au-delà d'une
+       grosse soixantaine de caractères, l'œil perd le début de la ligne
+       suivante. La carte reste large, sa prose non. */
+    #rtCorps > .bloc .note{max-width:68ch}
+
+    #tendCorps{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(0,1fr);
+               gap:0 22px;align-items:start}
+
+    /* La note de bas de page n'appartient à aucune paire. */
+    #tendCorps > .note{grid-column:1 / -1}
 
     /* ── Feuille d'ajout : fenêtre, plus plein écran ─────────────── */
     /* ⚠️ On ne touche PAS au `display` ici : il reste porté par
@@ -567,11 +1694,15 @@
        son plafond de 720 px même vide (mesuré : 406 px de contenu). */
     dialog.feuille{width:min(660px,92vw);max-width:none;
                    height:fit-content;max-height:min(78vh,720px);
-                   margin:auto;border:1px solid var(--bord);
-                   border-radius:var(--r-l);background:var(--carte);
-                   box-shadow:0 24px 60px rgba(0,0,0,.6);
-                   animation:monte .22s var(--sortie)}
-    .feuilleHaut{padding:16px 18px 12px}
+                   margin:auto;border:1px solid rgba(255,255,255,.14);
+                   border-radius:28px;background:var(--verre-fond-fort);
+                   box-shadow:var(--verre-liseret),0 28px 70px rgba(0,0,0,.62),
+                              0 4px 14px rgba(0,0,0,.4);
+                   animation:monte .34s var(--ressort)}
+    /* En fenêtre, la feuille n'a plus d'encoche à dégager : la réserve
+       de `env(safe-area-inset-top)` du mobile laisserait un bandeau vide
+       en haut sur les portables à écran découpé. */
+    .feuilleHaut{padding:16px 18px 12px;border-radius:28px 28px 0 0}
     dialog.feuille .rech{padding:14px 18px 0}
     /* `flex:1` (règle mobile) demandait à la liste de remplir toute la
        hauteur disponible. En plein écran c'est exactement ce qu'on veut ;
@@ -586,10 +1717,10 @@
        nommé vaut mieux qu'un pictogramme : on lit avant de cliquer.
        Le libellé est posé en pseudo-éléments pour ne pas toucher au
        HTML — l'`aria-label` du bouton porte déjà le nom accessible. */
-    #fab{width:auto;height:50px;border-radius:25px;
-         padding:0 20px 0 16px;font-size:0;display:flex;
-         align-items:center;gap:9px;
-         right:max(22px,calc(50% - 590px + 22px));bottom:26px}
+    #fab{width:auto;height:52px;border-radius:99px;
+         padding:0 22px 0 18px;font-size:0;display:flex;
+         align-items:center;justify-content:center;gap:9px;
+         right:var(--marge-flot);bottom:30px}
     #fab::before{content:'+';font-size:25px;font-weight:300;line-height:1}
     #fab::after{content:'Ajouter';font-size:14.5px;font-weight:600;
                 letter-spacing:-.01em}
@@ -603,14 +1734,21 @@
      « collant » resterait allumé après le tap.
      ─────────────────────────────────────────────────────────────────── */
   @media (min-width:900px) and (hover:hover){
-    .onglets button:not(.on):hover{color:var(--txt);background:var(--surface)}
+    /* Sur du verre, un survol ne se dit pas en changeant de gris mais en
+       laissant passer un peu plus de lumière : un blanc translucide de
+       plus, rien d'autre. */
+    .onglets button:not(.on):hover{color:var(--txt);
+                                   background:rgba(255,255,255,.08)}
     .nav button:not([disabled]):hover{background:var(--carte-h);
                                       color:var(--txt);border-color:var(--bord-fort)}
-    .res li:hover{background:var(--carte-h);border-color:var(--bord-fort);
-                  cursor:pointer}
-    .repas button:hover{border-color:var(--bord-fort);color:var(--txt)}
-    #fab:hover{filter:brightness(1.07);
-               box-shadow:0 8px 26px rgba(88,166,255,.5),0 2px 6px rgba(0,0,0,.5)}
+    .res li:hover{background:rgba(255,255,255,.11);
+                  border-color:var(--bord-fort);cursor:pointer}
+    .repas button:not(.on):hover{color:var(--txt);
+                                 background:rgba(255,255,255,.07)}
+    #fab:hover{filter:brightness(1.06);transform:scale(1.03);
+               box-shadow:inset 0 1px 0 rgba(255,255,255,.5),
+                          0 12px 32px rgba(16,185,129,.5),
+                          0 2px 8px rgba(0,0,0,.45)}
     dialog button:hover{filter:brightness(1.12)}
     .ligne:hover{background:var(--carte-h)}
 
@@ -622,19 +1760,45 @@
     .ligne .del{opacity:0;transition:opacity .13s var(--sortie)}
     .ligne:hover .del,.ligne .del:focus-visible{opacity:1}
     .ligne .del:hover{color:var(--danger)}
-    .ligne .pin{opacity:0;transition:opacity .13s var(--sortie)}
-    .ligne:hover .pin,.ligne .pin:focus-visible{opacity:.9}
+    .ligne .pin,.ligne .modif{opacity:0;transition:opacity .13s var(--sortie)}
+    .ligne:hover .pin,.ligne .pin:focus-visible,
+    .ligne:hover .modif,.ligne .modif:focus-visible{opacity:.9}
     .ligne .ok:hover{filter:brightness(1.2)}
   }
 </style>
 </head>
 <body>
-<header><h1>Journal</h1><span class="jour" id="dateJour"></span></header>
+<!-- Il y avait ici un <span class="jour" id="dateJour"></span>, vestige d'une
+     date en sous-titre : RIEN ne l'a jamais rempli (la date vit dans la barre
+     de jour du contenu), mais il imposait une 2e rangée à la grille du header.
+     Cette rangée vide était tout de même étirée à la moitié de la hauteur, et
+     comme le logo et le bouton couvrent les deux rangées alors que le titre
+     n'en occupe qu'une, les trois ne se calaient pas au même endroit —
+     23 px d'écart mesurés. Invisible à 62 px de haut, criant dès que la barre
+     s'est mise à passer de 92 à 54. Supprimé le 13/09/2026. -->
+<header><img class="logo" src="static/logo-alpha.png" alt="" width="34" height="34"><h1>Journal</h1><a class="deco" href="#" id="btnDeco">Déconnexion</a></header>
+<script>
+document.getElementById('btnDeco').addEventListener('click', async e => {
+  e.preventDefault();
+  // Chemin relatif : fonctionne en local ET derrière le préfixe /nutrition/.
+  await fetch('logout');
+  location.href = 'login';
+});
+</script>
 
-<div class="onglets">
-  <button id="ongJournal" class="on">Journal</button>
-  <button id="ongTend">Tendances</button>
-</div>
+<!-- Les libellés sont dans un <span> et non en texte nu : c'est lui que la
+     tab bar escamote au défilement (voir `tasseLibelle`), et un nœud de texte
+     ne se cible pas en CSS. Les identifiants et la classe `.on` ne bougent
+     pas — `montre()` continue de fonctionner à l'identique. -->
+<nav class="onglets" aria-label="Sections">
+  <button id="ongJournal" class="on"><span>Journal</span></button>
+  <button id="ongRoutine"><span>Routine</span></button>
+  <button id="ongTend"><span>Tendances</span></button>
+</nav>
+
+<main id="vueRoutine" hidden>
+  <div id="rtCorps"></div>
+</main>
 
 <main id="vueTend" hidden>
   <!-- Les conseils ne sont plus empilés en tête : chacun est posé APRÈS le
@@ -644,6 +1808,8 @@
 </main>
 
 <main id="vueJournal">
+  <div class="repasGrp">
+  <div class="repasHaut"><span>Bilan du jour</span></div>
   <div class="resume heros">
     <div class="jauges" id="jauges"></div>
     <div class="duo" id="duoJour"></div>
@@ -654,10 +1820,12 @@
       <div class="macros" id="macros"></div>
     </div>
   </div>
+  </div>
 
   <div class="nav">
     <button id="prec" title="Jour précédent">‹</button>
     <div class="jour" id="navJour"></div>
+    <button id="rafraichir" title="Rafraîchir" aria-label="Rafraîchir">↻</button>
     <button id="suiv" title="Jour suivant">›</button>
   </div>
   <div id="lignes"></div>
@@ -687,13 +1855,26 @@
   </div>
 </dialog>
 
-<dialog id="dlgRec">
-  <div class="nom" style="margin-bottom:3px">Plats récurrents</div>
-  <div class="meta" style="margin-bottom:14px">Proposés chaque jour en grisé, comptés
-    seulement une fois validés. Le grammage vaut pour les prochains jours.</div>
-  <div id="recListe" style="max-height:52vh;overflow:auto"></div>
-  <div class="actions" style="margin-top:16px">
-    <button class="sec" id="recFermer">Fermer</button>
+<!-- Modification d'une ligne DÉJÀ au journal. Volontairement une fiche à part
+     et non la fiche de grammage : celle-ci est le chemin des 20 secondes, elle
+     ne doit pas apprendre à faire deux choses. Ici le nom est modifiable, il
+     n'y a pas de case « proposer chaque jour », et le bouton n'ajoute rien. -->
+<dialog id="dlgEdit">
+  <div class="nom" style="margin-bottom:3px">Modifier</div>
+  <div class="meta" id="eMeta"></div>
+  <input id="eNom" type="text" autocomplete="off" aria-label="Nom du plat">
+  <div class="repas" id="eRepas"></div>
+  <input id="eG" type="number" inputmode="decimal" step="1" min="1" value="100"
+         aria-label="Grammes">
+  <div class="apercu" id="eApercu"></div>
+  <div class="presets" id="ePresets">
+    <button data-g="30">30</button><button data-g="50">50</button>
+    <button data-g="100">100</button><button data-g="150">150</button>
+    <button data-g="200">200</button>
+  </div>
+  <div class="actions">
+    <button class="sec" id="eAnnuler">Annuler</button>
+    <button class="prim" id="eValider">Enregistrer</button>
   </div>
 </dialog>
 
@@ -715,7 +1896,12 @@
          fichier, pas un flux caméra : ça fonctionne donc en HTTP, contrairement
          à getUserMedia qui exige une origine sécurisée. -->
     <input id="photo" type="file" accept="image/*" capture="environment" hidden>
-    <video id="flux" playsinline muted></video>
+    <!-- Viseur : vidéo + réticule, montrés et cachés ENSEMBLE par
+         directBascule()/directArret() (voir le CSS de #viseur). -->
+    <div id="viseur">
+      <video id="flux" playsinline muted></video>
+      <div class="reticule" aria-hidden="true"><div class="cadre"></div><div class="trait"></div></div>
+    </div>
     <div class="etat" id="etat"></div>
     <div class="rapide" id="rapide"></div>
     <div class="pastilles" id="pastilles"></div>
@@ -780,9 +1966,18 @@
   </div>
 </dialog>
 
-<script src="/static/zxing.js"></script>
+<script src="static/zxing.js"></script>
 <script>
 const $ = s => document.querySelector(s);
+
+// Auth : toute réponse 401 de l'API signifie « session expirée » → retour à la
+// page de login. Les chemins sont relatifs, donc ça marche aussi bien derrière
+// /nutrition/ qu'en local à la racine.
+const _fetch = window.fetch.bind(window);
+window.fetch = (...args) => _fetch(...args).then(r => {
+  if (r.status === 401) location.href = 'login';
+  return r;
+});
 
 // Date du jour au format AAAA-MM-JJ dans le fuseau du navigateur.
 // ⚠️ Ne JAMAIS repasser par toISOString() ici : il convertit en UTC, donc entre
@@ -798,6 +1993,14 @@ let choix = null, favoris = [], repasChoisi = null;
 let jourVu = isoLocal();   // jour actuellement affiché
 
 const REPAS = [['matin','Matin'],['midi','Midi'],['gouter','Goûter'],['soir','Soir']];
+
+// Le 🔁 dit « ce plat revient tous les jours ». Il ne se confond pas avec le
+// 📌, qui est le BOUTON pour l'y mettre — un même glyphe pour l'état et pour
+// l'action laissait croire qu'appuyer sur l'épingle d'un plat déjà en routine
+// ferait quelque chose. Défini une fois : l'icône sert au journal, aux
+// propositions en attente et à l'onglet Routine.
+const ROUTINE_ICONE = '<span class="routine" role="img" aria-label="en routine"'
+  + ' title="Plat en routine : proposé chaque jour à ce repas">🔁</span>';
 
 const nb = v => v == null ? '—' : (Math.round(v * 10) / 10);
 
@@ -838,7 +2041,7 @@ $('#q').addEventListener('blur', () => {
 
 async function chercher(q){
   try{
-    const r = await fetch('/api/recherche?q=' + encodeURIComponent(q));
+    const r = await fetch('api/recherche?q=' + encodeURIComponent(q));
     const d = await r.json();
     affiche(d.resultats, d.message);
   }catch(_){ affiche([], 'Serveur injoignable'); }
@@ -870,7 +2073,7 @@ function affiche(rs, msg){
     const r = rs.find(x => x.ref === b.dataset.del);
     if(!confirm(`Retirer « ${r.nom} » de tes aliments ?\n\n`
               + `Ce qui est déjà au journal n'est pas touché.`)) return;
-    await fetch('/api/manuel/' + b.dataset.del, {method:'DELETE'});
+    await fetch('api/manuel/' + b.dataset.del, {method:'DELETE'});
     chercher($('#q').value.trim());
   });
 }
@@ -899,6 +2102,13 @@ function ouvre(r){
   // défaut était fausse à chaque fois pour ce qu'il saisit le plus souvent.
   $('#g').value = r.dernier_grammage || 100;
   $('#dRec').checked = false;
+  // Même fiche, deux destinations. En mode routine la case « proposer chaque
+  // jour » n'a plus de sens (c'est tout ce qu'on est en train de faire) et le
+  // bouton doit dire ce qu'il va écrire — « Ajouter » ferait croire à une
+  // ligne de journal de plus.
+  const versRoutine = modeAjout === 'routine';
+  $('#dlg').querySelector('.recToggle').style.display = versRoutine ? 'none' : '';
+  $('#valider').textContent = versRoutine ? 'Mettre en routine' : 'Ajouter';
   // Le repas est présélectionné d'après l'heure : dans l'immense majorité des
   // cas il n'y a rien à toucher. C'est une suggestion, pas une contrainte.
   repasChoisi = suggestion;
@@ -917,7 +2127,7 @@ function dessineRepas(){
 }
 
 $('#g').addEventListener('input', majApercu);
-document.querySelectorAll('.presets button').forEach(b =>
+document.querySelectorAll('#dlg .presets button').forEach(b =>
   b.onclick = () => { $('#g').value = b.dataset.g; majApercu(); });
 
 function majApercu(){
@@ -931,9 +2141,25 @@ $('#annuler').onclick = () => $('#dlg').close();
 $('#valider').onclick = async () => {
   const g = parseFloat($('#g').value);
   if(!(g > 0)) return;
-  const btn = $('#valider'); btn.disabled = true; btn.textContent = '…';
+  const btn = $('#valider'); btn.disabled = true;
+  const libelle = btn.textContent; btn.textContent = '…';
   try{
-    const r = await fetch('/api/journal', {
+    if(modeAjout === 'routine'){
+      // Création depuis une FICHE et non depuis une ligne du journal : le
+      // serveur attend donc des valeurs pour 100 g, ce que la recherche rend
+      // déjà. Rien n'est écrit au journal — mettre en routine n'est pas manger.
+      const rep = await fetch('api/recurrents', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({...choix, grammes: g, repas: repasChoisi})});
+      const dr = await rep.json();
+      if(!rep.ok) throw new Error(dr.detail || 'refusé par le serveur');
+      $('#dlg').close(); fermeAjout();
+      montre('routine');
+      if(dr.reactive) alert(`« ${choix.nom} » était déjà en routine à ce repas.\n`
+                          + `Sa portion a été mise à jour au lieu d'être dupliquée.`);
+      return;
+    }
+    const r = await fetch('api/journal', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({...choix, grammes: g, repas: repasChoisi})});
     if(!r.ok) throw new Error(await r.text());
@@ -942,7 +2168,7 @@ $('#valider').onclick = async () => {
     // sinon le plat tout juste ajouté réapparaîtrait en grisé dans la seconde.
     if($('#dRec').checked){
       const {id} = await r.json();
-      if(id) await fetch('/api/recurrents', {method:'POST',
+      if(id) await fetch('api/recurrents', {method:'POST',
         headers:{'Content-Type':'application/json'},
         body: JSON.stringify({journal_id: id, repas: repasChoisi})});
     }
@@ -951,7 +2177,9 @@ $('#valider').onclick = async () => {
     jourVu = isoLocal();
     await chargeJour();
   }catch(e){ alert('Échec de l’enregistrement : ' + e.message); }
-  finally{ btn.disabled = false; btn.textContent = 'Ajouter'; }
+  // On restaure le libellé CAPTURÉ et non « Ajouter » en dur : après un échec
+  // en mode routine, le bouton mentirait sur ce qu'il fait.
+  finally{ btn.disabled = false; btn.textContent = libelle; }
 };
 
 // Une jauge = libellé, piste, valeur. La barre sature visuellement à 100 % mais
@@ -985,7 +2213,7 @@ function libelleJour(iso){
 }
 
 async function chargeJour(){
-  const d = await (await fetch('/api/jour?d=' + jourVu)).json();
+  const d = await (await fetch('api/jour?d=' + jourVu)).json();
   suggestion = d.repas_suggere || suggestion;
   bornes = {premier: d.premier_jour, dernier: d.dernier_jour};
 
@@ -1071,23 +2299,28 @@ async function chargeJour(){
   // aliments n'existait que dans l'espacement. Moins d'objets, plus de sens.
   $('#lignes').innerHTML = d.groupes.length
     ? d.groupes.map(g => `
-        <div class="repasCarte">
+        <div class="repasGrp">
           <div class="repasHaut"><span>${g.libelle}</span>
             <span class="kc">${Math.round(g.kcal)} kcal · P ${g.proteines} g</span></div>
+          <div class="repasCarte">
           ${g.lignes.map(l => `
             <div class="ligne">
-              <div><b>${esc(l.nom)}</b>
+              <div><b>${esc(l.nom)}</b>${l.routine ? ROUTINE_ICONE : ''}
                 <div class="meta">${l.grammes} g · ${Math.round(l.energie_kcal||0)} kcal
                 · ${l.horodatage.slice(11,16)}</div></div>
               <div class="act">
-                <button class="pin" data-pin="${l.id}" title="Proposer chaque jour à ce repas"
-                        aria-label="Marquer comme plat récurrent">📌</button>
+                <button class="modif" data-edit="${l.id}"
+                        title="Modifier la portion, le repas ou le nom"
+                        aria-label="Modifier">✎</button>
+                ${l.routine ? '' : `<button class="pin" data-pin="${l.id}"
+                        title="Proposer chaque jour à ce repas"
+                        aria-label="Mettre en routine">📌</button>`}
                 <button class="del" data-id="${l.id}" aria-label="Supprimer">×</button>
               </div>
             </div>`).join('')}
           ${(g.en_attente || []).map(p => `
             <div class="ligne attente">
-              <div><b>${esc(p.nom)}</b><span class="tag att">en attente</span>
+              <div><b>${esc(p.nom)}</b>${ROUTINE_ICONE}<span class="tag att">en attente</span>
                 <div class="meta">${p.grammes} g · ${Math.round(p.energie_kcal||0)} kcal
                 · non compté</div></div>
               <div class="act">
@@ -1096,6 +2329,7 @@ async function chargeJour(){
                         aria-label="Pas ce jour-là">×</button>
               </div>
             </div>`).join('')}
+          </div>
         </div>`).join('')
     : `<div class="vide">${d.jour === AUJOURDHUI()
          ? 'Rien enregistré aujourd’hui' : 'Rien ce jour-là'}</div>`;
@@ -1104,9 +2338,17 @@ async function chargeJour(){
     // On capture la ligne AVANT de la supprimer : après le DELETE elle n'existe
     // plus nulle part, et sans cette copie « Annuler » n'aurait rien à rejouer.
     const ligne = d.lignes.find(x => String(x.id) === b.dataset.id);
-    await fetch('/api/journal/' + b.dataset.id, {method:'DELETE'});
+    await fetch('api/journal/' + b.dataset.id, {method:'DELETE'});
     chargeJour();
     if(ligne) proposeAnnulation(ligne);
+  });
+
+  // Le crayon rouvre la ligne pour la corriger. On repasse par `d.lignes` (la
+  // liste complète) et non par le groupe : c'est elle qui porte `repas`, dont
+  // la fiche a besoin pour présélectionner le bon bouton.
+  $('#lignes').querySelectorAll('[data-edit]').forEach(b => b.onclick = () => {
+    const l = d.lignes.find(x => String(x.id) === b.dataset.edit);
+    if(l) ouvreEdition(l);
   });
 
   // ── Récurrents : valider / écarter une proposition, épingler une ligne ──
@@ -1114,13 +2356,13 @@ async function chargeJour(){
   // valider après coup le déjeuner d'hier qu'on a oublié de confirmer.
   $('#lignes').querySelectorAll('[data-val]').forEach(b => b.onclick = async () => {
     b.disabled = true; b.textContent = '…';
-    await fetch(`/api/recurrents/${b.dataset.val}/valider`, {method:'POST',
+    await fetch(`api/recurrents/${b.dataset.val}/valider`, {method:'POST',
       headers:{'Content-Type':'application/json'}, body: JSON.stringify({jour: jourVu})});
     chargeJour();
   });
   $('#lignes').querySelectorAll('[data-rej]').forEach(b => b.onclick = async () => {
     const rid = b.dataset.rej, jour = jourVu;
-    await fetch(`/api/recurrents/${rid}/rejeter`, {method:'POST',
+    await fetch(`api/recurrents/${rid}/rejeter`, {method:'POST',
       headers:{'Content-Type':'application/json'}, body: JSON.stringify({jour})});
     chargeJour();
     // Même bandeau que la suppression d'une ligne : un « × » raté ne doit pas
@@ -1132,9 +2374,10 @@ async function chargeJour(){
     const l = d.lignes.find(x => String(x.id) === b.dataset.pin);
     if(!l) return;
     const lib = (REPAS.find(([c]) => c === l.repas) || [, l.repas])[1];
-    if(!confirm(`Proposer « ${l.nom} » (${l.grammes} g) chaque jour au repas ${lib} ?\n\n`
-              + `Il apparaîtra en grisé, à valider d'un tap. Ce jour-ci est déjà compté.`)) return;
-    const r = await fetch('/api/recurrents', {method:'POST',
+    if(!confirm(`Mettre « ${l.nom} » (${l.grammes} g) en routine au repas ${lib} ?\n\n`
+              + `Il sera proposé chaque jour en grisé, à valider d'un tap, et marqué 🔁.\n`
+              + `Ce jour-ci est déjà compté.`)) return;
+    const r = await fetch('api/recurrents', {method:'POST',
       headers:{'Content-Type':'application/json'},
       body: JSON.stringify({journal_id: l.id})});
     if(!r.ok) alert('Échec : ' + await r.text());
@@ -1157,23 +2400,25 @@ function proposeAnnulation(ligne, verbe = 'supprimé'){
   document.querySelector('.annul')?.remove();
   const el = document.createElement('div');
   el.className = 'annul';
-  // Posé juste au-dessus de la barre du bas, hauteur mesurée et non devinée.
-  el.style.bottom = 'calc(20px + env(safe-area-inset-bottom))';
-  el.style.right = '92px';   // laisse le FAB dégagé
-  el.innerHTML = `<span>« ${esc(ligne.nom.slice(0, 26))} » ${verbe}</span>`
+  // L'aplomb n'est plus écrit ici mais dans la règle `.annul`, à partir des
+  // mêmes jetons que la capsule d'onglets et le bouton d'ajout. Deux styles en
+  // ligne posés à la main (`bottom:20px`, `right:92px`) désignaient une barre
+  // du bas qui n'existe plus, et le bandeau serait venu se poser SUR la
+  // capsule : une hauteur devinée ici ne peut pas suivre celle de là-bas.
+  el.innerHTML =`<span>« ${esc(ligne.nom.slice(0, 26))} » ${verbe}</span>`
                + `<button>Annuler</button>`;
   el.querySelector('button').onclick = async () => {
     clearTimeout(minuteurAnnul); el.remove();
     // Rejet d'un récurrent : on efface la décision du jour, rien à restaurer.
     if(ligne._rec){
-      await fetch(`/api/recurrents/${ligne._rec.rid}/jour/${ligne._rec.jour}`, {method:'DELETE'});
+      await fetch(`api/recurrents/${ligne._rec.rid}/jour/${ligne._rec.jour}`, {method:'DELETE'});
       chargeJour(); return;
     }
     // Endpoint DÉDIÉ, pas POST /api/journal : celui-ci attend des valeurs pour
     // 100 g et force la date du jour. Y renvoyer une ligne de journal telle
     // quelle multiplierait les valeurs par le grammage ET recréerait l'aliment
     // au mauvais jour si la suppression portait sur une journée passée.
-    await fetch('/api/journal/restaurer', {method:'POST',
+    await fetch('api/journal/restaurer', {method:'POST',
       headers:{'Content-Type':'application/json'}, body: JSON.stringify(ligne)});
     chargeJour();
   };
@@ -1189,7 +2434,16 @@ function proposeAnnulation(ligne, verbe = 'supprimé'){
 // La recherche vivait en haut de l'écran principal, en permanence. Elle ne sert
 // pourtant qu'au moment d'ajouter — le reste du temps elle prenait un tiers de
 // la hauteur pour ne rien dire. Elle est maintenant derrière un seul bouton.
-function ouvreAjout(){
+// Une SEULE feuille de recherche, deux destinations : le journal, ou la
+// routine. Dupliquer la recherche dans l'onglet Routine aurait voulu dire deux
+// barres, deux scanners, deux listes de favoris à tenir à jour — pour la même
+// question, « quel aliment ? ». Le mode ne survit jamais à la fermeture : une
+// feuille rouverte repart toujours sur le journal, sinon un « + » tapé la
+// veille dans l'onglet Routine écrirait au mauvais endroit le lendemain.
+let modeAjout = 'journal';
+
+function ouvreAjout(mode = 'journal'){
+  modeAjout = mode;
   $('#dlgAjout').showModal();
   montreFavoris();
   // Pas de focus automatique sur le champ : il ouvrirait le clavier et
@@ -1201,11 +2455,12 @@ function fermeAjout(){
   $('#q').value = ''; $('#res').innerHTML = ''; $('#pastilles').innerHTML = '';
   $('#etat').textContent = '';
 }
-$('#fab').onclick = ouvreAjout;
+$('#fab').onclick = () => ouvreAjout();
 $('#ajFermer').onclick = fermeAjout;
 // Le bouton « retour » d'Android ferme la feuille au lieu de quitter la page.
 $('#dlgAjout').addEventListener('close', () => {
   $('#q').value = ''; $('#res').innerHTML = ''; $('#pastilles').innerHTML = '';
+  modeAjout = 'journal';
 });
 
 // ── Actions rapides : répéter un repas, rattraper les protéines ───────────
@@ -1223,59 +2478,202 @@ function dessineRapide(){
     + (resteProt > 0
         ? `<button id="bProt" class="fort">🥩 Protéines −${Math.round(resteProt)} g</button>`
         : '')
-    + `<button id="bRec">📌 Récurrents</button>`;
+    + `<button id="bRec">🔁 Routine</button>`;
   $('#bRep').onclick = ouvreRepetition;
   const bp = $('#bProt'); if(bp) bp.onclick = ouvreProteines;
-  $('#bRec').onclick = ouvreRecurrents;
+  // La gestion des plats en routine a son onglet : ce raccourci y mène au lieu
+  // d'ouvrir une boîte qui dirait la même chose en moins large.
+  $('#bRec').onclick = () => { fermeAjout(); montre('routine'); };
 }
 
-// ── Plats récurrents : gestion (grammage, pause, reprise) ─────────────────
-// On n'ajoute PAS de récurrent depuis ici : ça passe par le 📌 d'une ligne du
-// journal ou la case de la fiche de grammage — là où le plat et sa portion
-// sont déjà sous les yeux. Une deuxième recherche ici ferait doublon.
-async function ouvreRecurrents(){
-  const d = await (await fetch('/api/recurrents?tous=true')).json();
+// ── Onglet Routine : les plats qui reviennent ─────────────────────────────
+//
+// Cette gestion vivait dans une boîte ouverte depuis la feuille d'ajout : deux
+// niveaux de profondeur pour une liste qu'on vient consulter, et AUCUN endroit
+// pour en ajouter un — il fallait d'abord manger le plat, puis l'épingler
+// depuis le journal. Un onglet la met au même rang que le journal et les
+// tendances : c'est une des trois choses que l'app sait faire.
+//
+// Pause et suppression sont deux boutons distincts, et c'est délibéré :
+// « pas cette semaine » et « plus jamais » ne coûtent pas la même chose. La
+// pause garde le plat et l'historique de ses décisions ; le retrait efface
+// les deux, sans jamais toucher aux lignes de journal déjà enregistrées.
+async function chargeRoutine(){
+  const d = await (await fetch('api/recurrents?tous=true')).json();
   const lib = c => (REPAS.find(([k]) => k === c) || [, c])[1];
-  const stat = {en_attente: 'en attente', valide: 'validé aujourd’hui', rejete: 'écarté aujourd’hui'};
-  $('#recListe').innerHTML = d.recurrents.length ? d.recurrents.map(r => `
-    <li class="recItem ${r.actif ? '' : 'off'}" data-id="${r.id}">
-      <div class="nom">${esc(r.nom)}<span class="tag">${lib(r.repas)}</span>
-        ${r.actif && r.statut_jour ? `<span class="tag ${r.statut_jour === 'en_attente' ? 'att' : ''}">${stat[r.statut_jour]}</span>` : ''}
-        ${r.actif ? '' : '<span class="tag">en pause</span>'}</div>
-      <div class="meta">${Math.round(r.portion.energie_kcal)} kcal · P ${nb(r.portion.proteines)} g
-        pour ${r.grammes} g</div>
-      <div class="rang">
-        <input type="number" inputmode="decimal" min="1" step="1" value="${r.grammes}"
-               data-g="${r.id}" aria-label="Grammes"><span class="meta" style="margin:0">g</span>
-        <button data-tog="${r.id}" data-on="${r.actif}">${r.actif ? 'Mettre en pause' : 'Reprendre'}</button>
+  const stat = {en_attente: 'en attente', valide: 'validé aujourd’hui',
+                rejete: 'écarté aujourd’hui'};
+  const actifs = d.recurrents.filter(r => r.actif).length;
+
+  $('#rtCorps').innerHTML = `
+    <div class="bloc">
+      <div class="rtTete">
+        <div>
+          <div class="nom">🔁 Plats en routine</div>
+          <div class="meta">${d.recurrents.length
+            ? `${actifs} actif${actifs > 1 ? 's' : ''} sur ${d.recurrents.length}`
+            : 'aucun pour l’instant'}</div>
+        </div>
+        <button class="prim" id="rtAjouter">+ Ajouter</button>
       </div>
-    </li>`).join('')
-    : `<div class="vide">Aucun plat récurrent.<br><br>Pour en créer un : 📌 sur une ligne
-       du journal, ou la case « Proposer chaque jour » dans la fiche d’ajout.</div>`;
-  $('#recListe').querySelectorAll('[data-g]').forEach(i => i.onchange = async () => {
+      <div class="note">Proposés chaque jour en grisé dans le journal, et comptés
+        seulement une fois validés d'un tap. La portion réglée ici vaut pour les
+        jours à venir — les repas déjà enregistrés ne bougent pas.</div>
+    </div>
+    ${d.recurrents.length ? `<div class="repasHaut"><span>Plats enregistrés</span>`
+      + `<span class="kc">${actifs} sur ${d.recurrents.length} actifs</span></div>`
+      + `<ul class="recListe">`
+      + d.recurrents.map(r => `
+      <li class="recItem ${r.actif ? '' : 'off'}" data-id="${r.id}">
+        <div class="nom">${esc(r.nom)}${ROUTINE_ICONE}
+          <span class="tag">${lib(r.repas)}</span>
+          ${r.actif && r.statut_jour
+            ? `<span class="tag ${r.statut_jour === 'en_attente' ? 'att' : ''}">${stat[r.statut_jour]}</span>`
+            : ''}
+          ${r.actif ? '' : '<span class="tag">en pause</span>'}</div>
+        <div class="meta">${Math.round(r.portion.energie_kcal)} kcal · P ${nb(r.portion.proteines)} g
+          pour ${r.grammes} g</div>
+        <div class="rang">
+          <input type="number" inputmode="decimal" min="1" step="1" value="${r.grammes}"
+                 data-g="${r.id}" aria-label="Grammes"><span class="meta" style="margin:0">g</span>
+          <select data-repas="${r.id}" aria-label="Repas">${REPAS.map(([c, l]) =>
+            `<option value="${c}"${c === r.repas ? ' selected' : ''}>${l}</option>`).join('')}</select>
+          <button class="pause" data-tog="${r.id}" data-on="${r.actif}"
+                  title="${r.actif ? 'Suspendre les propositions, sans rien perdre'
+                                   : 'Reprendre les propositions quotidiennes'}">${
+            r.actif ? 'Pause' : 'Reprendre'}</button>
+          <button class="sup" data-sup="${r.id}" data-nom="${esc(r.nom)}">Retirer</button>
+        </div>
+      </li>`).join('') + `</ul>`
+    : `<div class="vide">Aucun plat en routine.<br><br>« + Ajouter » ci-dessus,
+       le 📌 d'une ligne du journal, ou la case « Proposer chaque jour » de la
+       fiche d’ajout.</div>`}`;
+
+  $('#rtAjouter').onclick = () => ouvreAjout('routine');
+
+  $('#rtCorps').querySelectorAll('[data-g]').forEach(i => i.onchange = async () => {
     const g = parseFloat(i.value);
+    // Un champ vidé ou négatif reprend sa valeur d'avant plutôt que de partir
+    // au serveur : la fiche n'a rien à refuser, il n'y a rien à corriger.
     if(!(g > 0)){ i.value = d.recurrents.find(r => r.id === +i.dataset.g).grammes; return; }
-    await fetch('/api/recurrents/' + i.dataset.g, {method:'PATCH',
+    await fetch('api/recurrents/' + i.dataset.g, {method:'PATCH',
       headers:{'Content-Type':'application/json'}, body: JSON.stringify({grammes: g})});
-    ouvreRecurrents(); chargeJour();
+    chargeRoutine(); chargeJour();
   });
-  $('#recListe').querySelectorAll('[data-tog]').forEach(b => b.onclick = async () => {
-    await fetch('/api/recurrents/' + b.dataset.tog, {method:'PATCH',
+
+  $('#rtCorps').querySelectorAll('[data-repas]').forEach(sel => sel.onchange = async () => {
+    await fetch('api/recurrents/' + sel.dataset.repas, {method:'PATCH',
+      headers:{'Content-Type':'application/json'}, body: JSON.stringify({repas: sel.value})});
+    chargeRoutine(); chargeJour();
+  });
+
+  $('#rtCorps').querySelectorAll('[data-tog]').forEach(b => b.onclick = async () => {
+    await fetch('api/recurrents/' + b.dataset.tog, {method:'PATCH',
       headers:{'Content-Type':'application/json'},
       body: JSON.stringify({actif: b.dataset.on !== '1'})});
-    ouvreRecurrents(); chargeJour();
+    chargeRoutine(); chargeJour();
   });
-  if(!$('#dlgRec').open){
-    $('#dlgRec').showModal();
-    // showModal() pose le focus sur le premier champ, donc sur un grammage :
-    // sur téléphone ça ouvre le clavier avant qu'on ait rien demandé.
-    document.activeElement?.blur();
-  }
+
+  $('#rtCorps').querySelectorAll('[data-sup]').forEach(b => b.onclick = async () => {
+    // Endpoint DÉDIÉ : `DELETE /api/recurrents/{id}` tout court ne fait que
+    // mettre en pause, et l'appeler ici aurait laissé le plat dans la liste
+    // sous un bouton qui promettait de le retirer.
+    if(!confirm(`Retirer « ${b.dataset.nom} » de la routine ?\n\n`
+              + `Il ne sera plus proposé. Les repas déjà enregistrés au journal `
+              + `ne sont pas touchés.\n\nPour une pause temporaire, préfère `
+              + `« Mettre en pause ».`)) return;
+    const r = await fetch('api/recurrents/' + b.dataset.sup + '/definitif',
+                          {method:'DELETE'});
+    if(!r.ok){ alert('Échec du retrait.'); return; }
+    chargeRoutine(); chargeJour();
+  });
 }
-$('#recFermer').onclick = () => $('#dlgRec').close();
+
+// ── Modifier une ligne déjà enregistrée ───────────────────────────────────
+//
+// Jusqu'ici, corriger une portion voulait dire supprimer la ligne et tout
+// ressaisir, recherche et scan compris. C'est ce parcours-là qu'on remplace,
+// pas une deuxième façon d'ajouter.
+//
+// Le serveur recalcule les valeurs à partir de la ligne elle-même : l'aperçu
+// n'a donc qu'à refaire la même règle de trois pour montrer ce qui sera écrit.
+let edition = null;      // {id, kcal100, repas}
+
+function ouvreEdition(l){
+  const g0 = l.grammes || 0;
+  // `depart` garde l'état d'origine : on n'enverra QUE ce qui a bougé. Sans ça,
+  // rouvrir une vieille ligne pour corriger 10 g renverrait aussi son repas —
+  // et le journal porte des repas d'avant les quatre actuels (« apres-midi »,
+  // vu en base) que le serveur refuse à juste titre. La correction de la
+  // portion échouerait pour une valeur qu'on n'a pas touchée.
+  edition = {id: l.id, repas: l.repas,
+             kcal100: g0 > 0 ? (l.energie_kcal || 0) * 100 / g0 : null,
+             depart: {nom: l.nom, grammes: g0, repas: l.repas}};
+  $('#eNom').value = l.nom;
+  const inconnu = !REPAS.some(([c]) => c === l.repas);
+  $('#eMeta').textContent = (edition.kcal100 == null ? '' :
+      `${Math.round(edition.kcal100)} kcal / 100 g`)
+    + (l.horodatage ? ` · saisi à ${l.horodatage.slice(11, 16)}` : '')
+    + (inconnu ? ` · repas « ${l.repas} »` : '');
+  $('#eG').value = Math.round((l.grammes || 0) * 10) / 10;
+  dessineERepas();
+  majEApercu();
+  $('#dlgEdit').showModal();
+  // showModal() pose le focus sur le premier champ — ici le nom, donc le
+  // clavier s'ouvrirait sur téléphone alors que la correction porte neuf fois
+  // sur dix sur la portion. Même garde que l'ancienne fiche des récurrents.
+  document.activeElement?.blur();
+}
+
+function dessineERepas(){
+  $('#eRepas').innerHTML = REPAS.map(([c, l]) =>
+    `<button data-r="${c}" class="${c === edition.repas ? 'on' : ''}">${l}</button>`).join('');
+  $('#eRepas').querySelectorAll('button').forEach(b => b.onclick = () => {
+    edition.repas = b.dataset.r; dessineERepas();
+  });
+}
+
+function majEApercu(){
+  const g = parseFloat($('#eG').value) || 0;
+  $('#eApercu').textContent = (!edition || edition.kcal100 == null || !g) ? ''
+    : `${Math.round(edition.kcal100 * g / 100)} kcal pour ${g} g`;
+}
+
+$('#eG').addEventListener('input', majEApercu);
+$('#ePresets').querySelectorAll('button').forEach(b =>
+  b.onclick = () => { $('#eG').value = b.dataset.g; majEApercu(); });
+$('#eAnnuler').onclick = () => $('#dlgEdit').close();
+
+$('#eValider').onclick = async () => {
+  const g = parseFloat($('#eG').value), nom = $('#eNom').value.trim();
+  if(!(g > 0)){ $('#eApercu').textContent = 'Portion invalide.'; return; }
+  if(nom.length < 2){ $('#eApercu').textContent = 'Il manque le nom.'; return; }
+  // Seuls les champs modifiés partent. Le serveur refuse un corps vide, ce qui
+  // ferait une erreur rouge sur une fiche qu'on a juste ouverte puis validée
+  // sans rien changer : on ferme, c'est la réponse honnête.
+  const maj = {};
+  if(g !== edition.depart.grammes) maj.grammes = g;
+  if(nom !== edition.depart.nom) maj.nom = nom;
+  if(edition.repas !== edition.depart.repas) maj.repas = edition.repas;
+  if(!Object.keys(maj).length){ $('#dlgEdit').close(); return; }
+
+  const btn = $('#eValider'); btn.disabled = true; btn.textContent = '…';
+  try{
+    const r = await fetch('api/journal/' + edition.id, {
+      method:'PATCH', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(maj)});
+    if(!r.ok){
+      const d = await r.json().catch(() => ({}));
+      throw new Error(d.detail || 'refusé par le serveur');
+    }
+    $('#dlgEdit').close();
+    await chargeJour();
+  }catch(e){ $('#eApercu').textContent = 'Échec : ' + e.message; }
+  finally{ btn.disabled = false; btn.textContent = 'Enregistrer'; }
+};
 
 async function ouvreRepetition(){
-  const d = await (await fetch('/api/repas-recents?limite=10')).json();
+  const d = await (await fetch('api/repas-recents?limite=10')).json();
   $('#repListe').innerHTML = d.repas.length ? d.repas.map((r, i) => `
     <li data-r="${i}" style="list-style:none;background:var(--surface);
         border:1px solid var(--bord);border-radius:var(--r-m);padding:12px 13px;
@@ -1289,7 +2687,7 @@ async function ouvreRepetition(){
   $('#repListe').querySelectorAll('[data-r]').forEach(li => li.onclick = async () => {
     const r = d.repas[+li.dataset.r];
     li.style.opacity = .5;
-    const res = await fetch('/api/repeter', {method:'POST',
+    const res = await fetch('api/repeter', {method:'POST',
       headers:{'Content-Type':'application/json'},
       body: JSON.stringify({jour: r.jour, repas: r.repas, vers_repas: suggestion})});
     if(res.ok){ $('#dlgRep').close(); fermeAjout(); chargeJour(); }
@@ -1299,7 +2697,7 @@ async function ouvreRepetition(){
 }
 
 async function ouvreProteines(){
-  const d = await (await fetch(`/api/proteines?reste=${Math.round(resteProt)}&limite=12`)).json();
+  const d = await (await fetch(`api/proteines?reste=${Math.round(resteProt)}&limite=12`)).json();
   $('#protReste').textContent =
     `Il te manque ${Math.round(d.reste_g)} g. Voici ce qu'apporte une portion de ${d.portion_g} g.`;
   $('#protListe').innerHTML = d.resultats.map((r, i) => `
@@ -1379,46 +2777,309 @@ function graphe(serie, champ, cible, unite){
 function courbePoids(pesees, projection){
   const reels = pesees.filter(w => !w.aberrante);
   if(!reels.length) return '<div class="note">Aucune pesée fiable enregistrée.</div>';
-  const L = 320, H = 118, g = 26, bas = H - 20, haut = 10;
-  const proj = (projection?.possible ? projection.trace || [] : []).slice(0, 26);
-  const kgs = [...reels.map(w => w.kg), ...proj.map(p => p.kg),
+  // Les jours ou la balance a mesure l'impedance. Garmin n'en donne pas : un
+  // jour repris du miroir porte `maigre_kg: null`, et null n'est PAS zero — le
+  // filtrer ici plutot que le tracer a 0 evite une courbe qui plonge au sol les
+  // jours ou l'on s'est simplement pese sans la balance.
+  const compo = reels.filter(w => w.maigre_kg != null);
+
+  // ── Marge d'erreur de l'impédancemétrie ─────────────────────────────
+  // 2,6 points de masse grasse : borne HAUTE de l'erreur type (SEE) mesurée sur
+  // le CHANGEMENT de composition, face à un modèle à quatre compartiments
+  // (ADP + DXA + spectroscopie d'impédance).
+  //
+  //   Siedler MR, Rodriguez C, Stratton MT, Harty PS, Keith DS, Green JJ,
+  //   Boykin JR, White SJ, Williams AD, DeHaven B, Tinsley GM.
+  //   « Assessing the reliability and cross-sectional and longitudinal validity
+  //   of fifteen bioelectrical impedance analysis devices »,
+  //   British Journal of Nutrition, 2022.
+  //   https://pmc.ncbi.nlm.nih.gov/articles/PMC10404482/
+  //   Verbatim : « Standard error of the estimate ranged from 1·7 % to 2·6 % ».
+  //
+  // ⚠️ Trois limites à ne pas oublier en relisant ce code :
+  //   · cette fourchette couvre les QUINZE appareils, elle n'est pas donnée
+  //     séparément pour les modèles pieds-pieds. Prendre la borne haute est donc
+  //     un choix prudent — et probablement encore optimiste, les auteurs notant
+  //     que les pieds-pieds sont les plus mauvais de l'échantillon.
+  //   · 37 participants au suivi longitudinal, adultes sains de 19 à 50 ans.
+  //   · aucune Kamtron testée : aucune marque de ce prix ne publie de validation.
+  //
+  // La CONVERSION en kg est de moi, pas de l'article : celui-ci donne une erreur
+  // en points de pourcentage de masse grasse. Comme la balance pèse à ±0,3 kg
+  // près, l'incertitude sur le pourcentage se reporte telle quelle sur la masse
+  // grasse en kg, donc sur la masse maigre — d'où `poids × 2,6 %`.
+  //
+  // Convertie en kg au poids du jour : la balance pèse à ±0,3 kg près, donc
+  // toute l'incertitude de la masse maigre vient de celle du pourcentage.
+  //
+  // ⚠️ C'est la marge sur l'ÉVOLUTION, pas sur la valeur absolue — celle-ci est
+  // bien pire (3 à 7,5 points). Les confondre laisserait croire que « 71,5 kg »
+  // est connu à 2 kg près, alors qu'on ignore à peu près tout de sa vraie
+  // valeur. Ce que ces barres encadrent, c'est la comparaison d'un point à
+  // l'autre — le seul usage défendable de l'appareil.
+  const SEE_GRAS_PCT = 2.6;
+  const margeKg = w => w.kg * SEE_GRAS_PCT / 100;
+  const L = 320, H = 118, g = 26, gd = 6, bas = H - 20, haut = 10;
+  // (`projection.trace` n'est plus lue ici : elle décrit la trajectoire depuis
+  //  le DERNIER poids, or on trace le plan depuis le premier — voir plus bas.)
+  // La masse maigre entre dans le calcul de l'echelle : sans elle, la courbe
+  // bleue sortirait par le bas du cadre (~70 kg contre un minimum a 74,4).
+  // Les BORNES des barres d'erreur entrent dans l'échelle, pas seulement les
+  // points : sinon la barre basse sortirait par le fond du cadre et la marge
+  // paraîtrait plus petite qu'elle n'est — l'inverse du but recherché.
+  const kgs = [...reels.map(w => w.kg),
+               ...compo.flatMap(w => [w.maigre_kg + margeKg(w),
+                                      w.maigre_kg - margeKg(w)]),
                projection?.objectif_kg].filter(v => v != null);
   const min = Math.min(...kgs) - .6, max = Math.max(...kgs) + .6;
   const y = kg => bas - (kg - min) / (max - min || 1) * (bas - haut);
 
+  // ── Trajectoire prévue : elle part de la PREMIÈRE pesée ────────────
+  // Demande de JB le 13/09/2026 (« je veux qu'elle parte de ma première valeur
+  // à 87+ »), et c'est le bon choix : une pointillée ancrée sur le dernier
+  // poids connu est tautologique — elle colle forcément à la courbe réelle et
+  // ne dit rien. Ancrée sur le poids de DÉPART, elle devient un plan, et l'œil
+  // lit immédiatement si le réel est devant ou derrière.
+  //
+  // On ne peut pas réutiliser `projection.trace` pour ça : le serveur la
+  // calcule depuis le dernier poids (82,71 kg en semaine 1, sous les 83,4 du
+  // 10/09). La recaler sur 87,1 déformerait ce qu'elle décrit. On retrace donc
+  // le plan ici, au `perte_hebdo_kg` que la carte affiche juste au-dessus —
+  // même nombre à l'écran et sur la courbe.
+  //
+  // ⚠️ Conséquence assumée : cette droite touche la cible plus tard que la
+  // date annoncée par la carte, parce que la carte compte depuis le poids
+  // ACTUEL et la courbe depuis celui de DÉPART. Les deux sont justes, elles ne
+  // répondent pas à la même question.
+  const depart = reels[0].kg;
+  const cibleKg = projection?.objectif_kg;
+
   // Axe des x en JOURS depuis la première pesée, pour que réel et projeté
   // partagent la même échelle de temps.
   const t0 = new Date(reels[0].jour).getTime();
-  const finJ = Math.max(proj.length * 7, 14,
-    (new Date(reels[reels.length - 1].jour).getTime() - t0) / 864e5);
-  const x = j => g + (j / (finJ || 1)) * (L - g - 6);
+  // ⚠️ La projection part de la DERNIÈRE pesée, pas de la première — c'est
+  // depuis le dernier poids connu qu'on extrapole. Il faut donc son abscisse :
+  // `jDernier` est le nombre de jours entre la 1re et la dernière pesée, et
+  // c'est l'origine de la courbe pointillée.
+  //
+  // Deux bugs corrigés ici le 13/09/2026, signalés par JB (« elle part pas de
+  // mon premier poids ») :
+  //   · le point d'ancrage était `x(0)` — la date de la PREMIÈRE pesée — avec
+  //     `y` du poids de la DERNIÈRE. La pointillée démarrait donc sur un point
+  //     qui n'a jamais existé : 83,4 kg au 29/08, alors que ce jour-là JB
+  //     pesait 87,1. Visuellement, la projection décrochait de la courbe réelle
+  //     au lieu d'en repartir.
+  //   · `p.semaine * 7` comptait les semaines depuis la première pesée : la
+  //     semaine 1 tombait au 05/09 au lieu du 17/09. Toute la trajectoire était
+  //     avancée de 12 jours — l'écart entre les deux pesées.
+  const jDernier = (new Date(reels[reels.length - 1].jour).getTime() - t0) / 864e5;
+  // Abscisse de la date d'objectif annoncée par la carte. La pointillée est
+  // tendue entre DEUX points imposés : le poids de départ au jour 0, et la
+  // cible à cette date. Elle ne dérive plus d'un rythme, elle relie ce que
+  // l'écran promet — c'est ce que JB a demandé le 13/09/2026, après que l'axe
+  // daté a rendu visible que la courbe touchait 75 kg un mois après la date
+  // écrite juste au-dessus.
+  //
+  // ⚠️ Conséquence arithmétique, à ne pas découvrir en relisant le code : la
+  // pente de cette droite vaut (depart − cible) / durée, soit ~0,75 kg/sem
+  // ici, alors que la carte affiche 0,60. Les deux nombres sont justes et ne
+  // décrivent pas la même chose — le 0,60 court depuis le poids ACTUEL, la
+  // droite depuis celui de DÉPART, et elles arrivent à la même date parce que
+  // la seconde part de plus haut. Si un jour le graphe doit afficher le même
+  // rythme que la carte, il faudra renoncer à l'une des deux extrémités.
+  const jCible = projection?.date
+    ? (new Date(projection.date).getTime() - t0) / 864e5 : null;
+  const planPossible = projection?.possible && cibleKg != null
+                       && jCible != null && jCible > 0 && depart > cibleKg;
+  const finJ = Math.max(planPossible ? jCible : 0, jDernier, 14);
+  const x = j => g + (j / (finJ || 1)) * (L - g - gd);
 
-  const ptsProj = proj.map(p => `${x(p.semaine * 7).toFixed(1)},${y(p.kg).toFixed(1)}`);
-  const ligneProj = ptsProj.length
-    ? `<polyline class="proj" points="${x(0).toFixed(1)},${y(reels[reels.length-1].kg).toFixed(1)} ${ptsProj.join(' ')}"/>` : '';
+  // Une droite : deux points suffisent, et aucun point intermédiaire ne peut
+  // prétendre décrire autre chose qu'une interpolation.
+  const ligneProj = planPossible
+    ? `<polyline class="proj" points="${x(0).toFixed(1)},${y(depart).toFixed(1)} `
+      + `${x(jCible).toFixed(1)},${y(cibleKg).toFixed(1)}"/>` : '';
 
   const ptsReel = reels.map(w =>
     `${x((new Date(w.jour).getTime() - t0) / 864e5).toFixed(1)},${y(w.kg).toFixed(1)}`);
   const ligneReel = reels.length > 1
     ? `<polyline class="reel" points="${ptsReel.join(' ')}"/>` : '';
+  // Le rouge marque la DONNÉE inventée, pas la ligne qui la porte. Une
+  // composition simulée se pose très bien sur une vraie pesée : peindre en
+  // rouge le point de poids ce jour-là ferait passer une mesure réelle pour un
+  // faux. Signalé par JB le 14/09/2026 — « les points verts sont TOUS vrais,
+  // c'était juste les points bleus les points simulés ». Le serveur tranche en
+  // confrontant la date au miroir Garmin (`poids_simule` / `compo_simule`), ce
+  // qui ne dépend d'aucun drapeau à maintenir à la main.
   const points = reels.map((w, i) => {
     const [cx, cy] = ptsReel[i].split(',');
-    return `<circle class="pt" cx="${cx}" cy="${cy}" r="3.4"/>`;
+    return `<circle class="pt${w.poids_simule ? ' simu' : ''}" cx="${cx}" cy="${cy}" r="3.4"/>`;
   }).join('');
 
   const cible = projection?.objectif_kg;
   const ligneCible = cible != null && cible >= min && cible <= max
     ? `<line class="cible" x1="${g}" x2="${L}" y1="${y(cible).toFixed(1)}" y2="${y(cible).toFixed(1)}"/>`
-      + `<text class="etiqCible" x="${L - 2}" y="${(y(cible) - 3).toFixed(1)}" text-anchor="end">${cible} kg</text>`
+      // Étiquette posée à GAUCHE, déplacée là le 14/09/2026. À droite, elle
+      // tombe sur le point d'arrivée de la pointillée : celle-ci REJOINT la
+      // cible au bord droit du cadre, donc le libellé se superpose forcément à
+      // la fin du trait qu'il commente. À gauche, son seul voisin est la
+      // graduation de l'axe (x=2, ~13 px de large) et les 29 px la laissent
+      // tranquille quelle que soit la donnée.
+      + `<text class="etiqCible" x="${g + 3}" y="${(y(cible) - 3).toFixed(1)}" text-anchor="start">${cible} kg</text>`
     : '';
 
   const axeY = [max - .6, min + .6].map(v =>
     `<text class="axe" x="2" y="${(y(v) + 3).toFixed(1)}">${v.toFixed(1)}</text>`).join('');
 
+  // Axe des abscisses. Il manquait — le graphe montrait une descente sans dire
+  // sur combien de temps, ce qui rend la pente illisible : 12 kg en six mois ou
+  // en six semaines ne se lisent pas pareil. Signalé par JB le 13/09/2026.
+  //
+  // Même forme que les deux autres graphes de l'onglet (jj/mm, `class="axe"`,
+  // posé à `H - 5`) : les 20 px du bas étaient déjà réservés pour ça et
+  // restaient vides ici. Cinq repères — assez pour lire une durée, pas assez
+  // pour encombrer une courbe large de 320 unités.
+  //
+  // Les ancrages des extrémités ne sont pas `middle` : centré, le premier
+  // libellé déborderait à gauche du cadre et le dernier à droite, là où la
+  // largeur utile s'arrête à `L - 6`.
+  const dateAJour = j => {
+    const d = new Date(t0 + Math.round(j) * 864e5);
+    return `${String(d.getDate()).padStart(2, '0')}/`
+         + `${String(d.getMonth() + 1).padStart(2, '0')}`;
+  };
+  const axeX = [0, .25, .5, .75, 1].map((f, i, tous) => {
+    const j = finJ * f;
+    const ancre = i === 0 ? 'start' : i === tous.length - 1 ? 'end' : 'middle';
+    return `<text class="axe" x="${x(j).toFixed(1)}" y="${H - 5}" `
+         + `text-anchor="${ancre}">${dateAJour(j)}</text>`;
+  }).join('');
+
+  // ── 2e courbe : la masse MAIGRE, sur le même axe ────────────────────
+  // Le poids seul ne distingue pas un kilo de gras d'un kilo de muscle. C'est
+  // toute l'utilité de l'impédance — et sur un axe commun, la règle se lit
+  // sans commentaire :
+  //
+  //   verte qui descend + bleue PLATE   → tout ce qui part est du gras ✅
+  //   les deux qui descendent ensemble  → de la masse maigre s'en va ⚠️
+  //
+  // La bande teintée entre les deux courbes n'est pas une décoration : sa
+  // hauteur EST la masse grasse (poids − masse maigre), donc elle doit se
+  // resserrer. C'est la seule façon de montrer une soustraction sans écrire le
+  // résultat quelque part et espérer qu'on le rapproche des courbes.
+  const xj = w => x((new Date(w.jour).getTime() - t0) / 864e5);
+  const ptsMaigre = compo.map(w => `${xj(w).toFixed(1)},${y(w.maigre_kg).toFixed(1)}`);
+
+  const barres = compo.map(w => {
+    const m = margeKg(w), cx = xj(w).toFixed(1);
+    const y1 = y(w.maigre_kg + m).toFixed(1), y2 = y(w.maigre_kg - m).toFixed(1);
+    return `<line class="marge" x1="${cx}" x2="${cx}" y1="${y1}" y2="${y2}"/>`
+         + `<line class="marge" x1="${(+cx - 2.5).toFixed(1)}" x2="${(+cx + 2.5).toFixed(1)}" y1="${y1}" y2="${y1}"/>`
+         + `<line class="marge" x1="${(+cx - 2.5).toFixed(1)}" x2="${(+cx + 2.5).toFixed(1)}" y1="${y2}" y2="${y2}"/>`;
+  }).join('');
+  // Bande = poids à l'aller, masse maigre au retour.
+  //
+  // Le bord HAUT suit toutes les pesées de l'intervalle, y compris celles sans
+  // impédance : c'est du poids mesuré, et le faire passer par les seuls jours
+  // à impédance décollerait le haut de la bande de la courbe verte — deux
+  // traits à un cheveu l'un de l'autre, dont le lecteur chercherait la
+  // différence. Le bord haut EST la courbe verte sur cet intervalle.
+  //
+  // Le bord BAS, lui, ne peut relier que les jours réellement mesurés : entre
+  // deux, c'est une interpolation, et l'intercaler sur un jour Garmin
+  // reviendrait à inventer une masse maigre ce jour-là.
+  //
+  // La bande s'arrête donc à la dernière mesure d'impédance, pas à la dernière
+  // pesée — c'est voulu : au-delà, la masse grasse n'est pas connue.
+  const jourA = compo.length ? compo[0].jour : null;
+  const jourZ = compo.length ? compo[compo.length - 1].jour : null;
+  const hautBande = reels.filter(w => w.jour >= jourA && w.jour <= jourZ);
+  const bande = compo.length > 1
+    ? `<polygon class="bandeGras" points="`
+      + hautBande.map(w => `${xj(w).toFixed(1)},${y(w.kg).toFixed(1)}`).join(' ')
+      + ' ' + [...ptsMaigre].reverse().join(' ') + `"/>` : '';
+  const ligneMaigre = compo.length > 1
+    ? `<polyline class="maigreL" points="${ptsMaigre.join(' ')}"/>` : '';
+  const pointsMaigre = compo.map((w, i) => {
+    const [cx, cy] = ptsMaigre[i].split(',');
+    return `<circle class="maigrePt${w.compo_simule ? ' simu' : ''}" cx="${cx}" cy="${cy}" r="3"/>`;
+  }).join('');
+
+  // Lecture chiffrée de la dernière mesure. La courbe montre une tendance, pas
+  // une valeur : sur un seul point elle ne montre même rien. Le texte, lui,
+  // reste juste dès la première pesée — et dit explicitement qu'il n'y en a
+  // qu'une, au lieu de laisser croire à une tendance inexistante.
+  const der = compo.length ? compo[compo.length - 1] : null;
+
+  // Bilan de la période, CALCULÉ sur les deux mesures extrêmes.
+  //
+  // ⚠️ La version précédente affichait une règle récitée — « tant que la bleue
+  // reste plate pendant que la verte descend, ce que tu perds est du gras ».
+  // Le texte était fixe : il s'affichait à l'identique quand la bleue plongeait.
+  // Vu le 14/09/2026 en simulant un % de gras constant à la demande de JB : la
+  // masse maigre perdait 2,9 kg sur 3,6, sous une phrase qui disait que tout
+  // allait bien. Une légende qui rassure le jour où il faut alerter est pire
+  // que pas de légende — elle porte l'autorité de l'écran.
+  //
+  // Le seuil de −0,3 kg sur le poids évite de commenter du bruit de balance ;
+  // celui de −0,5 kg sur la masse maigre laisse passer la variation d'eau, à
+  // laquelle l'impédancemétrie est très sensible.
+  const bilan = compo.length < 2 ? '' : (() => {
+    const a = compo[0], z = der;
+    const dP = z.kg - a.kg, dM = z.maigre_kg - a.maigre_kg, dG = z.gras_kg - a.gras_kg;
+    const sgn = v => (v >= 0 ? '+' : '−') + Math.abs(v).toFixed(1);
+    const depuis = a.jour.split('-').reverse().slice(0, 2).join('/');
+    const perteReelle = dP < -.3;
+    const partMaigre = perteReelle ? Math.round(dM / dP * 100) : null;
+    // Le seuil du verdict est la MARGE MESURÉE de l'appareil, pas un nombre
+    // choisi à la main. Tant que l'écart de masse maigre rentre dedans, l'écran
+    // se tait : l'annoncer serait lire du bruit à voix haute.
+    //
+    // `margeKg` n'est PAS multipliée par √2 malgré le fait qu'on compare deux
+    // mesures : l'erreur type de l'étude porte déjà sur le CHANGEMENT, elle
+    // englobe donc les deux pesées. L'appliquer deux fois doublerait la marge
+    // sans raison et ferait taire l'alerte même quand elle est fondée.
+    const marge = margeKg(z);
+    const lisible = Math.abs(dM) > marge;
+    // UNE ligne, pas trois. Le détail chiffré du jour est monté dans l'intitulé
+    // du bloc, et la mention « marge de la balance » porte à elle seule l'aveu
+    // d'incertitude qui occupait auparavant une phrase entière. Signalé par JB
+    // le 14/09/2026 : posée juste au-dessus de la carte de conseil IA, cette
+    // note faisait deux pavés de prose collés — le bloc de chiffres se mettait
+    // à ressembler au commentaire qui le suit, et lui faisait concurrence.
+    return !perteReelle
+      ? ` Depuis le ${depuis} : ${sgn(dP)} kg, dont ${sgn(dM)} kg de masse maigre.`
+      : !lisible
+        ? ` Masse maigre ${sgn(dM)} kg depuis le ${depuis} : sous la marge de `
+          + `±${marge.toFixed(1)} kg de la balance, rien à conclure.`
+      : dM < 0
+        ? ` ⚠️ Masse maigre ${sgn(dM)} kg depuis le ${depuis}, au-delà de la marge `
+          + `de ±${marge.toFixed(1)} kg — ${partMaigre} % de ta perte n'est pas du gras.`
+        : ` Masse maigre ${sgn(dM)} kg depuis le ${depuis} : ce qui part est bien `
+          + `du gras.`;
+  })();
+
+  const lecture = !der ? ''
+    : `<div class="note">`
+      + (compo.length < 2
+          ? `Masse maigre ${der.maigre_kg} kg. Une seule mesure : la courbe bleue `
+            + `démarrera à la deuxième.`
+          : bilan.trim())
+      + `</div>`;
+
   return `<svg class="graphe" viewBox="0 0 ${L} ${H}" role="img">`
-       + `${ligneCible}${ligneProj}${ligneReel}${points}${axeY}</svg>`
-       + `<div class="leg"><span><i class="tRee"></i>pesées réelles</span>`
-       + `<span><i class="tProj"></i>trajectoire prévue</span></div>`;
+       + `${bande}${ligneCible}${ligneProj}${ligneReel}${points}`
+       + `${barres}${ligneMaigre}${pointsMaigre}${axeY}${axeX}</svg>`
+       + `<div class="leg"><span><i class="tRee"></i>poids</span>`
+       + `<span><i class="tProj"></i>trajectoire prévue</span>`
+       + (compo.length
+           ? `<span><i class="tMaigre"></i>masse maigre</span>`
+             + (compo.length > 1 ? `<span><i class="tBande"></i>masse grasse</span>` : '')
+           : '')
+       + (compo.length ? `<span><i class="tMarge"></i>marge d'erreur</span>` : '')
+       + (reels.some(w => w.poids_simule || w.compo_simule)
+           ? `<span><i class="tSimu"></i>valeurs simulées</span>` : '')
+       + `</div>` + lecture;
 }
 
 // Jauge de progression vers l'objectif. Elle ne mesure PAS la même chose que
@@ -1439,14 +3100,18 @@ function jaugeObjectif(pr){
 
 async function chargeTendances(){
   const [st, ins] = await Promise.all([
-    (await fetch('/api/stats?jours=30')).json(),
-    (await fetch('/api/insights')).json(),
+    (await fetch('api/stats?jours=30')).json(),
+    (await fetch('api/insights')).json(),
   ]);
   const q14 = st.serie.slice(-14);
   const pr = st.projection || {};
   const conseils = [...(ins.insights || [])];
+  // Le titre est SORTI de la carte : c'est la même liste groupée que le
+  // journal, et deux écrans de la même app ne peuvent pas ranger leur intitulé
+  // à deux endroits différents.
   const bloc = (titre, corps, extra = '') =>
-    `<div class="bloc"><h2>${titre}${extra}</h2>${corps}</div>`;
+    `<div class="repasGrp"><h2 class="sect"><span>${titre}</span>${extra}</h2>`
+    + `<div class="bloc">${corps}</div></div>`;
 
   // Un conseil est consommé APRÈS chaque bloc de chiffres. S'il n'en reste
   // plus, on n'insère rien : mieux vaut trois blocs commentés et deux nus que
@@ -1454,10 +3119,19 @@ async function chargeTendances(){
   const conseil = () => {
     const i = conseils.shift();
     if(!i) return '';
-    return `<div class="bloc conseilBloc"><div class="ins ${esc(i.ton)}">`
+    // Même charpente qu'un bloc de graphe — un groupe, un intitulé, une carte —
+    // avec un intitulé VIDE. C'est ce qui aligne le conseil sur la carte qu'il
+    // commente et non sur le titre de celle-ci : les deux colonnes du desktop
+    // ont la même structure, donc les mêmes hauteurs de départ, sans le moindre
+    // décalage à maintenir à la main. L'espace insécable donne à l'intitulé
+    // vide la hauteur d'une ligne de texte ; `aria-hidden` évite d'annoncer un
+    // titre vide à un lecteur d'écran.
+    return `<div class="repasGrp conseilGrp">`
+         + `<h2 class="sect" aria-hidden="true">&nbsp;</h2>`
+         + `<div class="bloc conseilBloc"><div class="ins ${esc(i.ton)}">`
          + `<b>${esc(i.titre)}</b><p>${esc(i.corps)}</p>`
          + (i.action ? `<span class="act">→ ${esc(i.action)}</span>` : '')
-         + `</div></div>`;
+         + `</div></div></div>`;
   };
 
   const parts = [];
@@ -1501,12 +3175,29 @@ async function chargeTendances(){
           + `tes données décrivent — et un écart de cette taille se paie en masse maigre.</div>`
         : `<div class="note">La date prévue tient compte du fait que le déficit se referme `
           + `en maigrissant : 850 kcal/j à 87 kg, 650 à 77. Une projection linéaire annoncerait `
-          + `environ 3 semaines de moins — à tort.</div>`));
+          + `environ 3 semaines de moins — à tort.</div>`)
+    // ⚠️ Ce `</div>` fermait `<div class="bloc heros">` et il MANQUAIT. Le
+    // navigateur refermait donc la carte tout seul à la fin du conteneur, ce
+    // qui imbriquait TOUT le reste de la page dedans : 4 groupes et 9 blocs
+    // enfants de la carte Objectif, qui mesurait 2298 px de haut au lieu de
+    // ~350, et `#tendCorps` n'avait que 2 enfants sur 8. Le défaut est resté
+    // invisible tant que les blocs avaient une bordure ; en liste groupée, le
+    // fond de la carte Objectif court derrière toute la page. Corrigé le
+    // 13/09/2026.
+    + `</div>`);
   parts.push(conseil());
 
   // ── 2. Poids ──
+  // Les chiffres du jour vont dans l'INTITULÉ, pas sous le graphe — même
+  // emplacement que « moy. 7 j » sur les graphes d'apport et de protéines.
+  // Deux écrans de la même app ne peuvent pas ranger la même information à
+  // deux endroits différents, et ça libère la note pour le seul verdict.
+  const derCompo = [...(st.calibration.pesees || [])]
+    .filter(w => !w.aberrante && w.gras_pct != null).pop();
   parts.push(bloc('Poids réel et trajectoire',
-    courbePoids(st.calibration.pesees, {...p1, objectif_kg: pr.objectif_kg})));
+    courbePoids(st.calibration.pesees, {...p1, objectif_kg: pr.objectif_kg}),
+    derCompo ? `<span class="h2val">${derCompo.gras_pct} % de gras `
+               + `· ${derCompo.maigre_kg} kg maigre</span>` : ''));
   parts.push(conseil());
 
   // ── 3. Apport ──
@@ -1563,19 +3254,36 @@ async function chargeTendances(){
 }
 
 let vue = 'journal';
+const VUES = [['journal', '#vueJournal', '#ongJournal', 'Journal'],
+              ['routine', '#vueRoutine', '#ongRoutine', 'Routine'],
+              ['tendances', '#vueTend', '#ongTend', 'Tendances']];
 function montre(v){
   vue = v;
-  const t = v === 'tendances';
-  $('#vueJournal').hidden = t;
-  $('#vueTend').hidden = !t;
+  VUES.forEach(([nom, cible, onglet]) => {
+    $(cible).hidden = nom !== v;
+    $(onglet).classList.toggle('on', nom === v);
+  });
+  // Le grand titre NOMME l'écran affiché. C'est toute sa fonction sur iOS, et
+  // ce n'est pas cosmétique : le titre est la seule chose qui reste lisible une
+  // fois la barre repliée, quand la pastille d'onglet est hors du champ de
+  // vision en bas de l'écran. Il disait « Journal » sur les trois onglets —
+  // invisible tant qu'il faisait 25 px dans un bandeau, criant à 30 px posé
+  // au-dessus d'un graphe de tendances.
+  const titre = (VUES.find(([nom]) => nom === v) || [])[3];
+  if(titre) document.title = $('header h1').textContent = titre;
   // Le bouton d'ajout appartient au journal : on n'ajoute pas un aliment depuis
-  // un graphe de deux semaines.
-  $('#fab').style.display = t ? 'none' : '';
-  $('#ongJournal').classList.toggle('on', !t);
-  $('#ongTend').classList.toggle('on', t);
-  if(t) chargeTendances();
+  // un graphe de deux semaines, et l'onglet Routine a son propre bouton — qui
+  // n'écrit d'ailleurs pas au même endroit.
+  $('#fab').style.display = v === 'journal' ? '' : 'none';
+  // Rechargé à CHAQUE affichage, jamais mis en cache : la routine change depuis
+  // le journal (📌, suppression d'une ligne validée) et les tendances depuis le
+  // cron de la nuit. Une liste figée sur l'état d'il y a trois onglets est pire
+  // qu'un rechargement d'une requête.
+  if(v === 'tendances') chargeTendances();
+  if(v === 'routine') chargeRoutine();
 }
 $('#ongJournal').onclick = () => montre('journal');
+$('#ongRoutine').onclick = () => montre('routine');
 $('#ongTend').onclick = () => montre('tendances');
 
 // ── Navigation entre les jours
@@ -1587,6 +3295,9 @@ const decale = n => {
 };
 $('#prec').onclick = () => decale(-1);
 $('#suiv').onclick = () => decale(1);
+// Rafraîchit les données du jour affiché sans recharger la page : recharge
+// simplement /api/jour et redessine, exactement comme un changement de jour.
+$('#rafraichir').onclick = () => chargeJour();
 
 // ── Balayage horizontal pour changer de jour ──────────────────────────────
 //
@@ -1632,7 +3343,7 @@ $('#suiv').onclick = () => decale(1);
 
 // ── Habitudes : on mange toujours la même chose. C'est le vrai raccourci.
 async function montreFavoris(){
-  const d = await (await fetch('/api/favoris')).json();
+  const d = await (await fetch('api/favoris')).json();
   favoris = d.resultats;
   if(!favoris.length){ $('#pastilles').innerHTML = ''; return; }
   // Pastilles et non lignes pleine largeur : trois par ligne au lieu d'une, donc
@@ -1757,12 +3468,20 @@ async function directBascule(){
       {video:{facingMode:'environment', width:{ideal:1280}}});
   }catch(e){ etat('Caméra refusée : ' + e.name); return; }
   const v = $('#flux');
-  v.srcObject = flux; v.style.display = 'block'; await v.play();
+  // C'est le VISEUR (vidéo + réticule) qu'on affiche, pas la vidéo seule :
+  // sinon le réticule resterait posé sur un cadre noir vide une fois le flux
+  // coupé. La vidéo, elle, est toujours `display:block` dans son cadre.
+  v.srcObject = flux; $('#viseur').style.display = 'block'; await v.play();
   etat('Vise le code-barres…');
   const c = document.createElement('canvas');
   const boucle = () => {
     if(!flux) return;
     if(v.videoWidth){
+      // On décode l'IMAGE ENTIÈRE, pas la zone du réticule : le cadre est une
+      // aide au cadrage, pas une contrainte. Restreindre au cadre couperait un
+      // code tenu un peu de travers (le réticule n'a que 52 % de la hauteur) et
+      // `object-fit: cover` rogne déjà ce que l'écran montre — la caméra voit
+      // plus large que le viseur, autant s'en servir.
       c.width = v.videoWidth; c.height = v.videoHeight;
       c.getContext('2d').drawImage(v, 0, 0);
       const code = lisCanvas(c);
@@ -1779,7 +3498,8 @@ async function directBascule(){
 function directArret(){
   flux?.getTracks().forEach(t => t.stop());
   flux = null;
-  const v = $('#flux'); v.srcObject = null; v.style.display = 'none';
+  const v = $('#flux'); v.srcObject = null;
+  $('#viseur').style.display = 'none';
 }
 
 if(!SECURISE)
@@ -1855,7 +3575,7 @@ $('#mValider').onclick = async () => {
   const poidsPortion = mMode === 'portion'
     ? parseFloat(($('#mPoids').value || '').replace(',', '.')) : null;
   try{
-    const r = await fetch('/api/manuel', {
+    const r = await fetch('api/manuel', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({nom, ...v})});
     const d = await r.json();
