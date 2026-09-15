@@ -89,21 +89,76 @@ def _pesees(depuis: str, poids_profil: float | None) -> list[dict]:
     la preuve que la balance ment parfois ; la garder sans la marquer ferait
     plonger toutes les tendances. On la marque, et le lecteur décide.
     """
-    if not GARMIN_DB.exists():
-        return []
+    # Deux sources, fusionnées par jour : le miroir Garmin (lecture seule) et
+    # la table `pesees` alimentée par la balance connectée via
+    # /api/pesee-balance. La balance GAGNE sur Garmin pour un même jour — c'est
+    # la mesure directe, là où Garmin peut n'en être qu'une recopie différée.
+    #
+    # `gras_pct` / `muscle_kg` ne viennent QUE de la balance : la table `weight`
+    # du miroir Garmin n'a que deux colonnes (jour, poids). Un jour repris de
+    # Garmin porte donc None sur les deux — c'est une absence de mesure, pas un
+    # zéro, et l'écran doit pouvoir faire la différence.
+    par_jour: dict[str, tuple[float, str, float | None, float | None]] = {}
+    # Les jours où Garmin a pesé. Sert à trancher, plus bas, si une ligne marquée
+    # `simulation` porte quand même un POIDS réel — cas courant, puisqu'une
+    # composition inventée se pose volontiers sur une vraie pesée.
+    jours_garmin: set[str] = set()
+    if GARMIN_DB.exists():
+        try:
+            with sqlite3.connect(f"file:{GARMIN_DB}?mode=ro", uri=True) as g:
+                for r in g.execute(
+                        "select day, weight from weight where date(day) >= ? "
+                        "order by day", (depuis,)):
+                    par_jour[str(r[0])[:10]] = (r[1], "garmin", None, None)
+                    jours_garmin.add(str(r[0])[:10])
+        except sqlite3.Error:
+            pass
     try:
-        with sqlite3.connect(f"file:{GARMIN_DB}?mode=ro", uri=True) as g:
-            lignes = [(str(r[0])[:10], r[1]) for r in g.execute(
-                "select day, weight from weight where date(day) >= ? order by day",
-                (depuis,))]
+        with sqlite3.connect(f"file:{DB}?mode=ro", uri=True) as c:
+            for j, kg, src, gras, muscle in c.execute(
+                    "select jour, poids_kg, source, gras_pct, muscle_kg "
+                    "from pesees where jour >= ? order by jour", (depuis,)):
+                par_jour[j] = (kg, src or "balance", gras, muscle)
     except sqlite3.Error:
+        pass
+    if not par_jour:
         return []
+
     out = []
-    for j, kg in lignes:
+    for j in sorted(par_jour):
+        kg, src, gras, muscle = par_jour[j]
         # Aberrante = plus de 8 % d'écart au poids du profil. Une variation
         # journalière réelle dépasse rarement 2 %, même avec l'eau et le sel.
+        #
+        # ⚠️ Ce critère est SIGNALÉTIQUE, pas un filtre d'entrée, et il ne doit
+        # pas le devenir : mesuré le 14/09/2026 contre un profil à 83,4 kg, il
+        # rejetterait 75 kg (l'objectif, 10,07 % d'écart) et laisserait passer
+        # la fausse pesée de 80 kg (4,08 %) — faux dans les deux sens. Le
+        # contrôle qui protège réellement la base est côté /api/pesee-balance,
+        # et il compare à la DERNIÈRE pesée connue, pas au poids du profil.
         aberrante = bool(poids_profil and abs(kg - poids_profil) / poids_profil > 0.08)
-        out.append({"jour": j, "kg": round(kg, 2), "aberrante": aberrante})
+        # `gras_kg` est CALCULÉ ici plutôt que renvoyé tel quel par la balance :
+        # c'est le produit poids × %, donc il reste cohérent avec le poids retenu
+        # pour ce jour même si les deux sources divergent. La masse maigre, elle,
+        # est reprise de la balance quand elle existe et déduite sinon — les deux
+        # doivent sommer au poids, et une mesure d'impédance ne le garantit pas.
+        gras_kg = round(kg * gras / 100, 2) if gras is not None else None
+        # Deux drapeaux et pas un seul : sur une ligne de démonstration, le poids
+        # peut être vrai alors que la composition est inventée. Les confondre
+        # ferait passer une vraie pesée pour une invention — ou l'inverse, plus
+        # grave. Le poids est réputé RÉEL dès que Garmin l'a mesuré ce jour-là :
+        # c'est une confrontation à une autre source, pas un drapeau posé à la
+        # main qu'il faudrait penser à mettre à jour.
+        simule = src == "simulation"
+        out.append({"jour": j, "kg": round(kg, 2), "aberrante": aberrante,
+                    "source": src,
+                    "poids_simule": simule and j not in jours_garmin,
+                    "compo_simule": simule,
+                    "gras_pct": gras,
+                    "gras_kg": gras_kg,
+                    "maigre_kg": round(muscle, 2) if muscle is not None
+                                 else (round(kg - gras_kg, 2)
+                                       if gras_kg is not None else None)})
     return out
 
 
